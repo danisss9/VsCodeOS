@@ -51,8 +51,9 @@ xorg-xkill
 xorg-xsetroot
 xterm
 openbox
+# mesa absorbed the VA-API drivers (it only 'provides' libva-mesa-driver now),
+# so listing that name separately breaks the build - it is no longer a package.
 mesa
-libva-mesa-driver
 xdg-utils
 xdg-user-dirs
 

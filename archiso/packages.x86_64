@@ -64,11 +64,12 @@ xf86-video-vesa
 xf86-video-amdgpu
 xf86-video-ati
 xf86-video-nouveau
+# mesa absorbed the VA-API drivers (it only 'provides' libva-mesa-driver now),
+# so that name must not be listed separately - it is no longer a package.
 mesa
 vulkan-intel
 vulkan-radeon
 vulkan-swrast
-libva-mesa-driver
 xdg-utils
 xdg-user-dirs
 
@@ -144,7 +145,9 @@ nano
 vim
 zip
 unzip
-p7zip
+# 7zip replaced p7zip in the repositories; the old name only lives on as a
+# 'provides', which pacman resolves but the Pi image's package check rejects.
+7zip
 tree
 htop
 fastfetch

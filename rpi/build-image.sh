@@ -259,8 +259,24 @@ msg "checking the package list against the repositories"
 unknown="$({ in_chroot "pacman -Si ${packages[*]} >/dev/null" 2>&1 || true; } |
            sed -n -e "s/^error: package '\(.*\)' was not found$/\1/p" \
                   -e 's/^error: target not found: //p')"
-[[ -z "${unknown}" ]] ||
-    die "not in the Arch Linux ARM repositories (renamed or dropped upstream?): ${unknown//$'\n'/ }"
+
+# A name 'pacman -Si' rejects can still be installable: when upstream folds one
+# package into another it leaves the old name behind as a 'provides' (mesa
+# absorbed libva-mesa-driver that way), and group names are not packages either.
+# pacman resolves both, so those only deserve a warning - failing the build on
+# them would be stricter than the installer that follows. A name nothing
+# provides really has been dropped, and that still has to stop the build.
+gone=()
+while read -r name; do
+    [[ -n "${name}" ]] || continue
+    if in_chroot "pacman -Sp --noconfirm ${name} >/dev/null 2>&1"; then
+        msg "  ${name} is no longer a package of its own, but something still provides it"
+    else
+        gone+=("${name}")
+    fi
+done <<< "${unknown}"
+(( ${#gone[@]} == 0 )) ||
+    die "not in the Arch Linux ARM repositories (renamed or dropped upstream?): ${gone[*]}"
 
 msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
