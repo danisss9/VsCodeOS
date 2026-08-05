@@ -175,7 +175,7 @@ release.
 ```bash
 docker run --rm --privileged -v "$PWD:/build" -w /build archlinux:latest \
   bash -c 'pacman -Sy --noconfirm --needed archlinux-keyring &&
-           pacman -Su --noconfirm --needed archiso git &&
+           pacman -Su --noconfirm --needed archiso git grub &&
            ./scripts/build-iso.sh -v 1.0.0'
 ```
 

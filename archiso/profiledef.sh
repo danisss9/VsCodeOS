@@ -8,9 +8,11 @@ iso_application="VS Code OS Live/Install Medium"
 iso_version="${ISO_VERSION:-$(date +%Y.%m.%d)}"
 install_dir="arch"
 buildmodes=('iso')
-bootmodes=('bios.syslinux.mbr' 'bios.syslinux.eltorito'
-           'uefi-ia32.grub.esp' 'uefi-ia32.grub.eltorito'
-           'uefi-x64.grub.esp' 'uefi-x64.grub.eltorito')
+# archiso 86 folded the old '<mode>.esp'/'<mode>.eltorito' pairs into one name
+# per boot loader; the split spellings still work but warn on every build.
+# 'uefi.grub' writes GRUB to both an ESP and an El Torito image, and on x86_64
+# it emits the ia32 binary as well, so 32-bit UEFI firmware still boots.
+bootmodes=('bios.syslinux' 'uefi.grub')
 arch="x86_64"
 pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"

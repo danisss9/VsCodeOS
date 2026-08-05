@@ -7,8 +7,9 @@
 # Kernel and Raspberry Pi firmware
 linux-rpi
 raspberrypi-bootloader
-raspberrypi-firmware
 firmware-raspberrypi
+# vcgencmd and friends; Arch Linux ARM renamed this from raspberrypi-firmware
+raspberrypi-utils
 linux-firmware-whence
 mkinitcpio
 

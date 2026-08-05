@@ -250,8 +250,19 @@ in_chroot "pacman-key --init && pacman-key --populate archlinuxarm"
 msg "updating the base system"
 in_chroot "pacman -Syu --noconfirm"
 
-msg "installing the VS Code OS package set"
 mapfile -t packages < <(grep -vE '^[[:space:]]*(#|$)' "${RPI_DIR}/packages.aarch64")
+
+# Arch Linux ARM renames packages now and then - raspberrypi-firmware became
+# raspberrypi-utils, for one - and pacman aborts on the first unknown target
+# without saying whether any others are wrong. Name them all up front.
+msg "checking the package list against the repositories"
+unknown="$({ in_chroot "pacman -Si ${packages[*]} >/dev/null" 2>&1 || true; } |
+           sed -n -e "s/^error: package '\(.*\)' was not found$/\1/p" \
+                  -e 's/^error: target not found: //p')"
+[[ -z "${unknown}" ]] ||
+    die "not in the Arch Linux ARM repositories (renamed or dropped upstream?): ${unknown//$'\n'/ }"
+
+msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
 
 # --------------------------------------------------------------------------

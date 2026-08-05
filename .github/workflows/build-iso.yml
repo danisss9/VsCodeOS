@@ -90,7 +90,9 @@ jobs:
             archlinux:latest \
             bash -euo pipefail -c '
               pacman -Sy --noconfirm --needed archlinux-keyring
-              pacman -Su --noconfirm --needed archiso git
+              # grub is only an optional dependency of archiso, but mkarchiso
+              # needs grub-mkstandalone to build the UEFI boot modes.
+              pacman -Su --noconfirm --needed archiso git grub
               git config --global --add safe.directory /build
               ./scripts/build-iso.sh -v "${ISO_VERSION}" -w /work -o /build/out
             '

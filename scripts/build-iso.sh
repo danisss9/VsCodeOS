@@ -39,7 +39,18 @@ command -v mkarchiso >/dev/null || die "mkarchiso not found - install the 'archi
 
 readonly RELENG="/usr/share/archiso/configs/releng"
 [[ -f "${RELENG}/grub/grub.cfg" ]] ||
-    die "${RELENG}/grub/grub.cfg is missing - this build needs archiso >= 75 (GRUB-based UEFI boot)"
+    die "${RELENG}/grub/grub.cfg is missing - this build needs archiso >= 86 (GRUB-based UEFI boot)"
+
+# The profile asks for the 'uefi.grub' boot mode, which archiso 86 introduced in
+# place of the uefi-{ia32,x64}.grub.{esp,eltorito} quartet.
+grep -q '_validate_requirements_bootmode_uefi\.grub()' "$(command -v mkarchiso)" ||
+    die "this mkarchiso does not know the 'uefi.grub' boot mode - update 'archiso' to 86 or newer"
+
+# GRUB is only an optional dependency of archiso, so a host with mkarchiso
+# cannot necessarily build the UEFI boot modes. Checking here fails the build in
+# seconds instead of after the profile has been staged and VS Code downloaded.
+command -v grub-mkstandalone >/dev/null ||
+    die "grub-mkstandalone not found - install the 'grub' package (archiso needs it for UEFI boot)"
 
 # --------------------------------------------------------------------------
 # assemble a throwaway copy of the profile
