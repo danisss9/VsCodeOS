@@ -31,6 +31,9 @@ while (( $# )); do
     esac
 done
 
+OUT_DIR="$(readlink -m -- "${OUT_DIR}")"
+WORK_DIR="$(readlink -m -- "${WORK_DIR}")"
+
 (( EUID == 0 )) || die "this build must run as root (mkarchiso needs it)"
 command -v mkarchiso >/dev/null || die "mkarchiso not found - install the 'archiso' package"
 
@@ -44,8 +47,22 @@ readonly RELENG="/usr/share/archiso/configs/releng"
 
 readonly PROFILE="${WORK_DIR}/profile"
 msg "staging profile in ${PROFILE}"
-rm -rf "${WORK_DIR}"
-mkdir -p "${PROFILE}" "${OUT_DIR}"
+
+# An aborted earlier run can leave mkarchiso's bind mounts behind; drop them
+# before deleting anything so rm never recurses into a mounted filesystem.
+if [[ -d "${WORK_DIR}" ]]; then
+    while read -r mp; do
+        [[ -n "${mp}" ]] || continue
+        umount -R "${mp}" 2>/dev/null || umount -Rl "${mp}" 2>/dev/null || true
+    done < <(findmnt -rno TARGET | awk -v d="${WORK_DIR}/" 'index($0, d) == 1' | sort -r)
+fi
+
+# The work directory is frequently a mount point rather than a plain directory -
+# the CI job hands the build a volume on the roomy ephemeral disk - and removing
+# a mount point fails with EBUSY, so empty it instead of deleting it.
+mkdir -p "${WORK_DIR}" "${OUT_DIR}"
+find "${WORK_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+mkdir -p "${PROFILE}"
 cp -a "${PROFILE_SRC}/." "${PROFILE}/"
 
 # The kiosk itself is architecture-neutral and shared with the Raspberry Pi

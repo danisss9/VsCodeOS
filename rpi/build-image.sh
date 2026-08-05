@@ -54,6 +54,9 @@ done
 # preflight
 # --------------------------------------------------------------------------
 
+OUT_DIR="$(readlink -m -- "${OUT_DIR}")"
+WORK_DIR="$(readlink -m -- "${WORK_DIR}")"
+
 (( EUID == 0 )) || die "this build must run as root (it partitions and chroots)"
 
 missing=()
@@ -74,13 +77,29 @@ fi
 # teardown
 # --------------------------------------------------------------------------
 
+# udev and systemd both poke at a freshly written loop device, so a mount can
+# still be busy for a moment after the last write. Retry before giving up.
+umount_tree() {
+    local target="$1" tries=0
+    mountpoint -q "${target}" || return 0
+    until umount -R "${target}" 2>/dev/null; do
+        (( tries++ < 10 )) || return 1
+        sync
+        sleep 1
+        mountpoint -q "${target}" || return 0
+    done
+    return 0
+}
+
 cleanup() {
     local rc=$?
     set +e
     if [[ -n "${ROOT_MNT}" && -d "${ROOT_MNT}" ]]; then
         local m
         for m in dev/pts dev proc sys run boot ""; do
-            mountpoint -q "${ROOT_MNT}/${m}" && umount -R "${ROOT_MNT}/${m}"
+            # A lazy unmount is acceptable here but not on the success path:
+            # this only runs when the build has already failed.
+            umount_tree "${ROOT_MNT}/${m}" || umount -Rl "${ROOT_MNT}/${m}"
         done
     fi
     if [[ -n "${LOOP}" ]]; then
@@ -96,8 +115,19 @@ trap cleanup EXIT
 # fetch the Arch Linux ARM base
 # --------------------------------------------------------------------------
 
-rm -rf "${WORK_DIR}"
+# An aborted earlier run can leave the image's bind mounts behind; drop them
+# before deleting anything so rm never recurses into a mounted filesystem.
+if [[ -d "${WORK_DIR}" ]]; then
+    while read -r mp; do
+        [[ -n "${mp}" ]] || continue
+        umount -R "${mp}" 2>/dev/null || umount -Rl "${mp}" 2>/dev/null || true
+    done < <(findmnt -rno TARGET | awk -v d="${WORK_DIR}/" 'index($0, d) == 1' | sort -r)
+fi
+
+# The work directory may itself be a mount point (CI hands the build a volume),
+# and removing a mount point fails with EBUSY - empty it instead of deleting it.
 mkdir -p "${WORK_DIR}" "${OUT_DIR}"
+find "${WORK_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 readonly TARBALL="${WORK_DIR}/alarm-rootfs.tar.gz"
 
 msg "downloading the Arch Linux ARM base for Raspberry Pi"
@@ -169,14 +199,50 @@ bsdtar -xpf "${TARBALL}" -C "${ROOT_MNT}" || true
 # package installation inside the image
 # --------------------------------------------------------------------------
 
-mount --bind /dev  "${ROOT_MNT}/dev"
-mount --bind /dev/pts "${ROOT_MNT}/dev/pts"
+# --rbind carries /dev/pts and friends along; --make-rslave stops our unmounts
+# from propagating back to the host's shared mounts, which is what otherwise
+# leaves these "target is busy" on the way out.
+mount --rbind /dev "${ROOT_MNT}/dev"
+mount --make-rslave "${ROOT_MNT}/dev"
 mount -t proc proc "${ROOT_MNT}/proc"
 mount -t sysfs sys "${ROOT_MNT}/sys"
+mount --make-rslave "${ROOT_MNT}/sys"
 mount -t tmpfs tmpfs "${ROOT_MNT}/run"
-cp -f /etc/resolv.conf "${ROOT_MNT}/etc/resolv.conf"
+
+# DNS for the chroot. The host's /etc/resolv.conf usually points at a local
+# stub - systemd-resolved's 127.0.0.53 on the GitHub runners - and neither that
+# stub's runtime directory nor its socket exist under the chroot's fresh tmpfs
+# /run, so copying the file verbatim leaves the image unable to resolve a
+# mirror. Take the upstream servers systemd-resolved publishes instead, ignore
+# loopback entries, and fall back to public resolvers when nothing usable is
+# left. pacman only ever talks to public mirrors from here.
+host_nameservers() {
+    local src
+    for src in /run/systemd/resolve/resolv.conf /etc/resolv.conf; do
+        [[ -s "${src}" ]] || continue
+        awk '$1 == "nameserver" && $2 !~ /^(127\.|::1$)/ { print "nameserver", $2 }' "${src}"
+    done | awk '!seen[$0]++'
+}
+
+nameservers="$(host_nameservers)"
+if [[ -z "${nameservers}" ]]; then
+    msg "the host offers no non-loopback nameserver - using public resolvers"
+    nameservers=$'nameserver 1.1.1.1\nnameserver 8.8.8.8'
+fi
+rm -f "${ROOT_MNT}/etc/resolv.conf"
+printf '%s\n' "${nameservers}" > "${ROOT_MNT}/etc/resolv.conf"
+chmod 0644 "${ROOT_MNT}/etc/resolv.conf"
 
 in_chroot() { chroot "${ROOT_MNT}" /bin/bash -euo pipefail -c "$*"; }
+
+# Every package below comes over the network, so prove name resolution works
+# before pacman fails several minutes in with a wall of mirror errors.
+msg "checking that the image can resolve a mirror"
+in_chroot "getent hosts mirror.archlinuxarm.org >/dev/null" || {
+    printf 'resolv.conf inside the image:\n' >&2
+    sed 's/^/    /' "${ROOT_MNT}/etc/resolv.conf" >&2
+    die "the chroot cannot resolve mirror.archlinuxarm.org - check the host's DNS"
+}
 
 msg "initialising the package keyring"
 in_chroot "pacman-key --init && pacman-key --populate archlinuxarm"
@@ -336,9 +402,7 @@ sync
 
 msg "unmounting"
 for m in dev/pts dev proc sys run boot ""; do
-    if mountpoint -q "${ROOT_MNT}/${m}"; then
-        umount -R "${ROOT_MNT}/${m}" || die "could not unmount ${ROOT_MNT}/${m}"
-    fi
+    umount_tree "${ROOT_MNT}/${m}" || die "could not unmount ${ROOT_MNT}/${m}"
 done
 losetup -d "${LOOP}"
 LOOP=""
