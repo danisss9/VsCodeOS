@@ -278,6 +278,15 @@ done <<< "${unknown}"
 (( ${#gone[@]} == 0 )) ||
     die "not in the Arch Linux ARM repositories (renamed or dropped upstream?): ${gone[*]}"
 
+# The rpi-aarch64 base tarball boots the mainline linux-aarch64 kernel, and
+# linux-rpi from the package set conflicts with it (both provide 'linux').
+# pacman asks whether to remove it and --noconfirm answers "no", which aborts
+# the whole transaction, so swap the kernels explicitly up front.
+if in_chroot "pacman -Q linux-aarch64 >/dev/null 2>&1"; then
+    msg "replacing the mainline linux-aarch64 kernel with linux-rpi"
+    in_chroot "pacman -R --noconfirm linux-aarch64"
+fi
+
 msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
 
