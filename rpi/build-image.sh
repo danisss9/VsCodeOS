@@ -247,6 +247,30 @@ in_chroot "getent hosts mirror.archlinuxarm.org >/dev/null" || {
 msg "initialising the package keyring"
 in_chroot "pacman-key --init && pacman-key --populate archlinuxarm"
 
+# The rpi-aarch64 base tarball boots the mainline linux-aarch64 kernel through
+# U-Boot, and linux-rpi conflicts with both halves of that chain: linux-aarch64
+# provides 'linux', and uboot-raspberrypi owns /boot/kernel8.img, which is where
+# linux-rpi puts the kernel itself. pacman asks whether to remove a conflicting
+# package and --noconfirm answers "no", which aborts the whole transaction, so
+# drop them explicitly up front. Our config.txt has the firmware load the kernel
+# directly (kernel=kernel8.img), so U-Boot has no role in this image either way.
+#
+# This runs before the system upgrade on purpose: upgrading a kernel that is
+# about to be deleted costs a download and a full mkinitcpio run, and under
+# qemu-user emulation that is several minutes.
+displaced=()
+for pkg in uboot-raspberrypi linux-aarch64; do
+    if in_chroot "pacman -Q ${pkg} >/dev/null 2>&1"; then
+        displaced+=("${pkg}")
+    fi
+done
+if (( ${#displaced[@]} )); then
+    msg "removing the base tarball's boot chain (${displaced[*]}) in favour of linux-rpi"
+    # One transaction: uboot-raspberrypi has to go before, or together with, the
+    # kernel it loads, and pacman only checks dependencies once per transaction.
+    in_chroot "pacman -R --noconfirm ${displaced[*]}"
+fi
+
 msg "updating the base system"
 in_chroot "pacman -Syu --noconfirm"
 
@@ -277,15 +301,6 @@ while read -r name; do
 done <<< "${unknown}"
 (( ${#gone[@]} == 0 )) ||
     die "not in the Arch Linux ARM repositories (renamed or dropped upstream?): ${gone[*]}"
-
-# The rpi-aarch64 base tarball boots the mainline linux-aarch64 kernel, and
-# linux-rpi from the package set conflicts with it (both provide 'linux').
-# pacman asks whether to remove it and --noconfirm answers "no", which aborts
-# the whole transaction, so swap the kernels explicitly up front.
-if in_chroot "pacman -Q linux-aarch64 >/dev/null 2>&1"; then
-    msg "replacing the mainline linux-aarch64 kernel with linux-rpi"
-    in_chroot "pacman -R --noconfirm linux-aarch64"
-fi
 
 msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
