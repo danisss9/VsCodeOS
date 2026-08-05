@@ -31,7 +31,11 @@ readonly ALARM_URL="${ALARM_URL:-http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-
 OUT_DIR="${REPO_ROOT}/out"
 WORK_DIR="${REPO_ROOT}/work-rpi"
 BUILD_VERSION="${IMAGE_VERSION:-${ISO_VERSION:-$(date +%Y.%m.%d)}}"
-IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-5120}"
+# The image only has to hold the installed system - the root filesystem grows to
+# fill the card on first boot - but it has to hold all of it: the Arch Linux ARM
+# base, the package set, and roughly 600 MiB of unpacked VS Code. 6 GiB leaves
+# comfortable headroom and still fits the smallest card worth using (8 GB).
+IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-6144}"
 BOOT_SIZE_MB="${BOOT_SIZE_MB:-512}"
 
 msg() { printf '\e[38;5;39m==>\e[0m %s\n' "$*"; }
@@ -96,7 +100,7 @@ cleanup() {
     set +e
     if [[ -n "${ROOT_MNT}" && -d "${ROOT_MNT}" ]]; then
         local m
-        for m in dev/pts dev proc sys run boot ""; do
+        for m in dev/pts dev proc sys run var/cache/pacman/pkg boot ""; do
             # A lazy unmount is acceptable here but not on the success path:
             # this only runs when the build has already failed.
             umount_tree "${ROOT_MNT}/${m}" || umount -Rl "${ROOT_MNT}/${m}"
@@ -129,6 +133,17 @@ fi
 mkdir -p "${WORK_DIR}" "${OUT_DIR}"
 find "${WORK_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 readonly TARBALL="${WORK_DIR}/alarm-rootfs.tar.gz"
+
+# Free space on the filesystem holding a given path, in MiB.
+free_mb() { df -B1M --output=avail "$1" | awk 'NR == 2 { print $1 }'; }
+
+# The work directory holds the raw image, the base tarball and the package
+# cache all at once. Say so now rather than through whichever write happens to
+# hit ENOSPC first, half an hour in.
+work_needed_mb=$(( IMAGE_SIZE_MB + 4096 ))
+work_free_mb="$(free_mb "${WORK_DIR}")"
+(( work_free_mb >= work_needed_mb )) ||
+    die "${WORK_DIR} has ${work_free_mb} MiB free; this build needs about ${work_needed_mb} MiB - point -w at a roomier filesystem"
 
 msg "downloading the Arch Linux ARM base for Raspberry Pi"
 curl --fail --location --retry 5 --retry-delay 3 --retry-connrefused \
@@ -177,7 +192,10 @@ while [[ ! -b "${LOOP}p2" ]] && (( tries++ < 20 )); do sleep 0.5; done
 msg "attached as ${LOOP}"
 
 mkfs.vfat -F32 -n "${BOOT_LABEL}" "${LOOP}p1" >/dev/null
-mkfs.ext4 -q -F -L "${ROOT_LABEL}" "${LOOP}p2"
+# -m 1: ext4 holds back 5% for root by default, which is worth having on a
+# server and pure waste here - it would be a gigabyte and a half on a 32 GB card
+# after the first-boot expansion, and a few hundred MiB during this build.
+mkfs.ext4 -q -F -m 1 -L "${ROOT_LABEL}" "${LOOP}p2"
 
 ROOT_MNT="${WORK_DIR}/root"
 mkdir -p "${ROOT_MNT}"
@@ -209,6 +227,14 @@ mount -t sysfs sys "${ROOT_MNT}/sys"
 mount --make-rslave "${ROOT_MNT}/sys"
 mount -t tmpfs tmpfs "${ROOT_MNT}/run"
 
+# pacman downloads every package into /var/cache/pacman/pkg and leaves it
+# there, so an image sized for the installed system would also be carrying a
+# compressed second copy of it - well over a gigabyte, and the reason the build
+# used to run out of room part-way through unpacking VS Code. Keep the cache in
+# the work directory instead; nothing in the finished image needs it.
+mkdir -p "${WORK_DIR}/pkgcache" "${ROOT_MNT}/var/cache/pacman/pkg"
+mount --bind "${WORK_DIR}/pkgcache" "${ROOT_MNT}/var/cache/pacman/pkg"
+
 # DNS for the chroot. The host's /etc/resolv.conf usually points at a local
 # stub - systemd-resolved's 127.0.0.53 on the GitHub runners - and neither that
 # stub's runtime directory nor its socket exist under the chroot's fresh tmpfs
@@ -234,6 +260,17 @@ printf '%s\n' "${nameservers}" > "${ROOT_MNT}/etc/resolv.conf"
 chmod 0644 "${ROOT_MNT}/etc/resolv.conf"
 
 in_chroot() { chroot "${ROOT_MNT}" /bin/bash -euo pipefail -c "$*"; }
+
+# An ENOSPC inside the image surfaces as hundreds of write errors from tar or
+# pacman with the actual cause - an image too small for what is going into it -
+# nowhere in sight. Check before the steps that fill it, and name the knob.
+require_image_space() {
+    local needed_mb="$1" what="$2" available_mb
+    available_mb="$(free_mb "${ROOT_MNT}")"
+    if (( available_mb < needed_mb )); then
+        die "${what} needs about ${needed_mb} MiB but the image has ${available_mb} MiB left - rebuild with IMAGE_SIZE_MB=$(( IMAGE_SIZE_MB + needed_mb - available_mb + 512 ))"
+    fi
+}
 
 # Every package below comes over the network, so prove name resolution works
 # before pacman fails several minutes in with a wall of mirror errors.
@@ -304,6 +341,7 @@ done <<< "${unknown}"
 
 msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
+msg "image root filesystem: $(free_mb "${ROOT_MNT}") MiB free after the package set"
 
 # --------------------------------------------------------------------------
 # overlays
@@ -391,7 +429,10 @@ msg "generating locales"
 in_chroot "locale-gen"
 
 msg "staging Visual Studio Code"
+# The arm64 build unpacks to roughly 600 MiB; ask for a little more than that.
+require_image_space 800 "unpacking Visual Studio Code"
 "${REPO_ROOT}/scripts/fetch-vscode.sh" "${ROOT_MNT}" "${VSCODE_VERSION:-latest}" arm64
+msg "image root filesystem: $(free_mb "${ROOT_MNT}") MiB free after VS Code"
 
 msg "finalising /home/vscodeos"
 in_chroot "chown -R vscodeos:vscodeos /home/vscodeos"
@@ -435,8 +476,11 @@ done
 [[ -s "${ROOT_MNT}/boot/start4.elf" || -s "${ROOT_MNT}/boot/start.elf" ]] ||
     die "Raspberry Pi firmware (start*.elf) is missing from /boot"
 
-msg "clearing the package cache"
-in_chroot "pacman -Scc --noconfirm >/dev/null 2>&1 || true"
+msg "detaching the package cache"
+# The downloads went to the work directory, so there is nothing to delete here:
+# unmounting simply leaves the image's own (empty) cache directory in place.
+umount_tree "${ROOT_MNT}/var/cache/pacman/pkg" ||
+    die "could not unmount the package cache"
 rm -f "${ROOT_MNT}/etc/resolv.conf"
 
 # Zeroing the free space costs a few minutes but shrinks the compressed
@@ -452,7 +496,7 @@ sync
 # --------------------------------------------------------------------------
 
 msg "unmounting"
-for m in dev/pts dev proc sys run boot ""; do
+for m in dev/pts dev proc sys run var/cache/pacman/pkg boot ""; do
     umount_tree "${ROOT_MNT}/${m}" || die "could not unmount ${ROOT_MNT}/${m}"
 done
 losetup -d "${LOOP}"

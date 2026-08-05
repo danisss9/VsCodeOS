@@ -76,6 +76,9 @@ xz -dc VSCodeOS-<version>-aarch64-rpi.img.xz |
   sudo dd of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
+The image unpacks to 6 GiB, so an 8 GB card is the minimum; 16 GB or more
+leaves room to work in.
+
 There is no installer step: **the flashed card is the installed system**. On
 first boot the root filesystem expands to fill the card, and the editor comes
 up. The default login is `vscodeos` / `vscodeos` — change it with `passwd` from

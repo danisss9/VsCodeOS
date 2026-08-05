@@ -37,6 +37,19 @@ curl --fail --location --retry 5 --retry-delay 3 --retry-connrefused \
 echo "==> sha256: $(sha256sum "${tmp}/code.tar.gz" | cut -d' ' -f1)"
 
 rm -rf "${PREFIX}"
+
+# Unpacking into a full filesystem gets you one "No space left on device" per
+# file - hundreds of lines that never mention the destination or how short it
+# was. The tree comes out at roughly three times the archive; ask for four.
+# Measured after the old tree is gone, so a rebuild counts the room it frees.
+archive_mb=$(( $(stat -c %s "${tmp}/code.tar.gz") / 1048576 ))
+needed_mb=$(( archive_mb * 4 ))
+available_mb="$(df -B1M --output=avail "${AIROOTFS}" | awk 'NR == 2 { print $1 }')"
+if (( available_mb < needed_mb )); then
+    echo "not enough room in ${AIROOTFS}: unpacking VS Code needs about ${needed_mb} MiB, ${available_mb} MiB free" >&2
+    exit 1
+fi
+
 mkdir -p "${PREFIX}"
 tar -xzf "${tmp}/code.tar.gz" -C "${PREFIX}" --strip-components=1
 

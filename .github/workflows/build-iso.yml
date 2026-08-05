@@ -219,7 +219,8 @@ jobs:
           \`\`\`
 
           There is no installer: the flashed card **is** the system, and the root
-          filesystem expands to fill it on first boot. The default login is
+          filesystem expands to fill it on first boot. The image unpacks to 6 GiB,
+          so use an 8 GB card or larger. The default login is
           \`vscodeos\` / \`vscodeos\` - change it with \`passwd\`.
 
           A 4 GB Pi 4 or a Pi 5 gives the best experience. Windows users: use
