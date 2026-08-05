@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Update the Visual Studio Code installation in /opt/visual-studio-code.
+#
+# VS Code ships as a tarball rather than a pacman package, so `pacman -Syu`
+# does not touch it. This script fetches the current stable build from
+# Microsoft, swaps it in atomically and keeps the previous copy around until
+# the new one is in place.
+
+set -Eeuo pipefail
+
+readonly CHANNEL="${VSCODE_CHANNEL:-stable}"
+readonly VERSION="${VSCODE_VERSION:-latest}"
+readonly PREFIX="/opt/visual-studio-code"
+readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-x64/${CHANNEL}"
+
+(( EUID == 0 )) || { echo "run as root: sudo vscodeos-update-code" >&2; exit 1; }
+
+current="unknown"
+[[ -r "${PREFIX}/resources/app/package.json" ]] &&
+    current="$(grep -oP '"version"\s*:\s*"\K[^"]+' "${PREFIX}/resources/app/package.json" | head -1)"
+echo "==> installed version: ${current}"
+
+tmp="$(mktemp -d /var/tmp/vscode-update.XXXXXX)"
+trap 'rm -rf "${tmp}"' EXIT
+
+echo "==> downloading ${URL}"
+curl --fail --location --retry 3 --retry-delay 2 --progress-bar \
+    -o "${tmp}/code.tar.gz" "${URL}"
+
+echo "==> unpacking"
+mkdir -p "${tmp}/unpacked"
+tar -xzf "${tmp}/code.tar.gz" -C "${tmp}/unpacked" --strip-components=1
+[[ -x "${tmp}/unpacked/code" ]] || { echo "downloaded archive is not a VS Code build" >&2; exit 1; }
+
+new="$(grep -oP '"version"\s*:\s*"\K[^"]+' "${tmp}/unpacked/resources/app/package.json" | head -1)"
+if [[ "${new}" == "${current}" ]]; then
+    echo "==> already at ${current}, nothing to do"
+    exit 0
+fi
+
+echo "==> installing ${new}"
+rm -rf "${PREFIX}.old"
+[[ -d "${PREFIX}" ]] && mv "${PREFIX}" "${PREFIX}.old"
+mv "${tmp}/unpacked" "${PREFIX}"
+chown -R root:root "${PREFIX}"
+rm -rf "${PREFIX}.old"
+
+echo "==> VS Code updated: ${current} -> ${new}"
+echo "    reboot, or run 'pkill -f ${PREFIX}/code' to restart the editor."

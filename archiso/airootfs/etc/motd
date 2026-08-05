@@ -1,0 +1,7 @@
+
+  VS Code OS  -  Arch Linux with Visual Studio Code as the desktop
+
+  sudo vscodeos-install    install this system onto a disk
+  nmtui                    connect to Wi-Fi
+  code <path>              open something in the running editor
+

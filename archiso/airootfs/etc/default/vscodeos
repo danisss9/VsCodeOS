@@ -1,0 +1,11 @@
+# VS Code OS kiosk defaults. Edit and reboot (or restart the session) to apply.
+
+# Extra flags appended to every VS Code launch.
+VSCODEOS_CODE_FLAGS=""
+
+# Folder VS Code opens on boot.
+VSCODEOS_WORKSPACE="$HOME/Projects"
+
+# Set to 0 to stop respawning VS Code when it exits (the session then drops
+# back to a login console instead of restarting the editor).
+VSCODEOS_RESPAWN=1

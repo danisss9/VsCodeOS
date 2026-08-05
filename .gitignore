@@ -1,0 +1,9 @@
+# Build output
+/out/
+/work/
+*.iso
+*.iso.sha256
+
+# Editor / OS noise
+.DS_Store
+*.swp

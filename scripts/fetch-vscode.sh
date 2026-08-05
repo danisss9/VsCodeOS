@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Download the official Visual Studio Code build and stage it inside the
+# archiso profile, so the ISO ships a ready-to-run editor with no network
+# access required at install time.
+#
+# Usage: scripts/fetch-vscode.sh <airootfs-dir> [version]
+#
+#   version defaults to "latest"; pin an exact build (e.g. 1.98.2) by passing
+#   it here or by exporting VSCODE_VERSION.
+
+set -Eeuo pipefail
+
+readonly AIROOTFS="${1:?usage: fetch-vscode.sh <airootfs-dir> [version]}"
+readonly VERSION="${2:-${VSCODE_VERSION:-latest}}"
+readonly CHANNEL="${VSCODE_CHANNEL:-stable}"
+readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-x64/${CHANNEL}"
+readonly PREFIX="${AIROOTFS}/opt/visual-studio-code"
+
+[[ -d "${AIROOTFS}" ]] || { echo "no such directory: ${AIROOTFS}" >&2; exit 1; }
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "${tmp}"' EXIT
+
+echo "==> fetching Visual Studio Code (${VERSION}/${CHANNEL})"
+curl --fail --location --retry 5 --retry-delay 3 --retry-connrefused \
+    --silent --show-error -o "${tmp}/code.tar.gz" "${URL}"
+
+echo "==> sha256: $(sha256sum "${tmp}/code.tar.gz" | cut -d' ' -f1)"
+
+rm -rf "${PREFIX}"
+mkdir -p "${PREFIX}"
+tar -xzf "${tmp}/code.tar.gz" -C "${PREFIX}" --strip-components=1
+
+[[ -x "${PREFIX}/code" ]] || { echo "unpacked archive has no code binary" >&2; exit 1; }
+
+version="$(grep -oP '"version"\s*:\s*"\K[^"]+' "${PREFIX}/resources/app/package.json" | head -1)"
+commit="$(grep -oP '"commit"\s*:\s*"\K[^"]+' "${PREFIX}/resources/app/product.json" | head -1)"
+
+# Icon for the desktop entry and anything else that looks it up by name.
+install -Dm0644 \
+    "${PREFIX}/resources/app/resources/linux/code.png" \
+    "${AIROOTFS}/usr/share/pixmaps/visual-studio-code.png" 2>/dev/null || true
+
+# Record what went in, so the running system can report its own provenance.
+install -Dm0644 /dev/stdin "${AIROOTFS}/usr/share/vscodeos/vscode-version" <<EOF
+version=${version}
+commit=${commit}
+channel=${CHANNEL}
+source=${URL}
+fetched=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
+chown -R 0:0 "${PREFIX}" 2>/dev/null || true
+# Electron needs either unprivileged user namespaces or a SUID helper to start
+# its sandbox. Setting the SUID bit (what distro packages do) makes the editor
+# start on hardened kernels too, instead of dying with a sandbox error.
+if [[ -f "${PREFIX}/chrome-sandbox" ]]; then
+    chown 0:0 "${PREFIX}/chrome-sandbox"
+    chmod 4755 "${PREFIX}/chrome-sandbox"
+fi
+echo "==> staged Visual Studio Code ${version} (${commit:0:8}) in ${PREFIX}"
