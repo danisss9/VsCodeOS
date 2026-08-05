@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# VS Code OS kiosk session.
+#
+# Executed by ~/.xinitrc once the X server is running. It brings up the
+# minimal desktop plumbing VS Code expects, then keeps the editor on screen
+# for as long as the session lives: if VS Code exits for any reason it is
+# relaunched immediately, so the window cannot be closed away.
+
+set -u
+
+readonly CODE_HOME="/opt/visual-studio-code"
+readonly CODE_BIN="${CODE_HOME}/code"
+readonly LOG_DIR="${HOME}/.local/share/vscodeos"
+readonly LOG_FILE="${LOG_DIR}/kiosk.log"
+
+VSCODEOS_CODE_FLAGS=""
+VSCODEOS_WORKSPACE="${HOME}/Projects"
+VSCODEOS_RESPAWN=1
+# shellcheck source=/dev/null
+[[ -r /etc/default/vscodeos ]] && . /etc/default/vscodeos
+
+mkdir -p "${LOG_DIR}"
+exec >>"${LOG_FILE}" 2>&1
+echo "=== kiosk session started $(date -Is) ==="
+
+log() { echo "[$(date +%H:%M:%S)] $*"; }
+
+# --- desktop plumbing -------------------------------------------------------
+
+# No screen blanking, no DPMS: a kiosk should stay awake and visible.
+xset s off -dpms s noblank 2>/dev/null || true
+
+# Hide the pointer's "wait" cursor artefacts and give the root window a
+# neutral background instead of the default X stipple.
+xsetroot -solid '#1f1f1f' -cursor_name left_ptr 2>/dev/null || true
+
+# Window manager. Openbox is configured (see ~/.config/openbox/rc.xml) with no
+# keyboard bindings and a fullscreen/undecorated rule for the editor.
+openbox --config-file "${HOME}/.config/openbox/rc.xml" &
+readonly WM_PID=$!
+log "openbox started (pid ${WM_PID})"
+
+# D-Bus session bus, needed by VS Code for portals, notifications and the
+# keyring. Only start one if the login session did not already provide it.
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+    eval "$(dbus-launch --sh-syntax --exit-with-session)" 2>/dev/null || true
+    log "dbus session bus: ${DBUS_SESSION_BUS_ADDRESS:-unavailable}"
+fi
+
+# Secret storage for VS Code account sync / GitHub sign-in. The keyring is
+# unlocked with an empty password on a single-user kiosk machine.
+if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+    eval "$(gnome-keyring-daemon --start --components=secrets,pkcs11 2>/dev/null)" || true
+    export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+fi
+
+# XDG user dirs so the file picker has somewhere sensible to point at.
+command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update
+mkdir -p "${VSCODEOS_WORKSPACE}"
+
+# --- launch flags -----------------------------------------------------------
+
+declare -a flags=(
+    "--new-window"
+    "--disable-workspace-trust"
+    "--no-first-run"
+)
+
+# Machines without a render node (most VMs, some servers) hang or fall over on
+# GPU init, so ask Electron for software rendering there.
+if [[ ! -d /dev/dri ]]; then
+    log "no /dev/dri present - falling back to software rendering"
+    flags+=("--disable-gpu" "--disable-gpu-compositing")
+fi
+
+# Word-split the admin-provided flags on purpose: /etc/default/vscodeos is a
+# shell fragment and documents them as a plain flag list.
+if [[ -n "${VSCODEOS_CODE_FLAGS}" ]]; then
+    # shellcheck disable=SC2206
+    flags+=(${VSCODEOS_CODE_FLAGS})
+fi
+
+if [[ ! -x "${CODE_BIN}" ]]; then
+    log "FATAL: ${CODE_BIN} is missing - dropping to a terminal"
+    exec xterm -fa Monospace -fs 12 -e "echo 'VS Code is not installed at ${CODE_BIN}'; bash"
+fi
+
+# --- supervisor loop --------------------------------------------------------
+
+cleanup() {
+    log "session ending - stopping window manager"
+    kill "${WM_PID}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Ignore the "please go away" signals a user can trigger by accident, so a
+# stray Ctrl+C or terminal hangup cannot take the kiosk down. SIGTERM is left
+# alone on purpose: systemd uses it to stop the session, and swallowing it
+# would stall every reboot until the 90 s kill timeout expires.
+trap '' HUP INT QUIT
+
+backoff=1
+while :; do
+    log "launching VS Code: ${CODE_BIN} ${flags[*]} ${VSCODEOS_WORKSPACE}"
+    start=${SECONDS}
+
+    # Run the Electron binary directly rather than the `code` wrapper: the
+    # wrapper detaches and returns immediately, which would defeat the loop.
+    "${CODE_BIN}" "${flags[@]}" "${VSCODEOS_WORKSPACE}"
+    rc=$?
+
+    ran=$(( SECONDS - start ))
+    log "VS Code exited with status ${rc} after ${ran}s"
+
+    if [[ "${VSCODEOS_RESPAWN}" != "1" ]]; then
+        log "respawn disabled in /etc/default/vscodeos - leaving the session"
+        break
+    fi
+
+    # A crash loop (repeated exits within a few seconds) backs off instead of
+    # spinning the CPU; a normal long-lived session restarts instantly.
+    if (( ran < 5 )); then
+        log "restarting in ${backoff}s"
+        sleep "${backoff}"
+        (( backoff < 30 )) && backoff=$(( backoff * 2 ))
+    else
+        backoff=1
+    fi
+done

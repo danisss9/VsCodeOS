@@ -1,0 +1,574 @@
+#!/usr/bin/env bash
+# VS Code OS installer.
+#
+# Copies the running live system onto a disk and makes it bootable. Because the
+# installed system is a byte-for-byte copy of the medium you booted, the
+# install needs no network access at all.
+#
+# Usage: sudo vscodeos-install [--target /dev/sdX] [--unattended]
+
+set -Eeuo pipefail
+
+readonly VERSION="1.0"
+readonly ROOT_EXCLUDES=(
+    "/dev/*" "/proc/*" "/sys/*" "/tmp/*" "/run/*" "/mnt/*" "/media/*"
+    "/lost+found" "/swapfile" "/var/cache/pacman/pkg/*" "/var/tmp/*"
+)
+
+# Colours are only used when stdout is a terminal, so logs stay readable.
+if [[ -t 1 ]]; then
+    C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'; C_BLUE=$'\e[38;5;39m'
+    C_GREEN=$'\e[38;5;42m'; C_YELLOW=$'\e[38;5;214m'; C_RED=$'\e[38;5;203m'
+else
+    C_RESET=""; C_BOLD=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+fi
+
+TARGET_DISK=""
+UNATTENDED=0
+MOUNT_POINT=""
+declare -a CLEANUP_MOUNTS=()
+
+info()  { printf '%s==>%s %s\n' "${C_BLUE}${C_BOLD}" "${C_RESET}" "$*"; }
+ok()    { printf '%s ok%s %s\n' "${C_GREEN}${C_BOLD}" "${C_RESET}" "$*"; }
+warn()  { printf '%s /!\\%s %s\n' "${C_YELLOW}${C_BOLD}" "${C_RESET}" "$*" >&2; }
+die()   { printf '%serror%s %s\n' "${C_RED}${C_BOLD}" "${C_RESET}" "$*" >&2; exit 1; }
+
+banner() {
+    printf '%s\n' "${C_BLUE}${C_BOLD}"
+    cat <<'ART'
+ _   _ ___    ___         _         ___  ___
+| | | / __|  / __|___  __| |___    / _ \/ __|
+| |_| \__ \ | (__/ _ \/ _` / -_)  | (_) \__ \
+ \___/|___/  \___\___/\__,_\___|   \___/|___/
+ART
+    printf '%s          installer v%s\n\n' "${C_RESET}" "${VERSION}"
+}
+
+usage() {
+    cat <<EOF
+Usage: sudo vscodeos-install [options]
+
+  --target /dev/sdX   Disk to install onto (skips the interactive picker)
+  --unattended        Do not ask for confirmation. DESTROYS the target disk.
+                      Requires --target.
+  -h, --help          Show this help
+
+Every option is optional; with no arguments the installer walks you through
+disk selection, user setup, locale and timezone interactively.
+EOF
+}
+
+# --------------------------------------------------------------------------
+# preflight
+# --------------------------------------------------------------------------
+
+parse_args() {
+    while (( $# )); do
+        case "$1" in
+            --target) TARGET_DISK="${2:-}"; shift 2 ;;
+            --target=*) TARGET_DISK="${1#*=}"; shift ;;
+            --unattended) UNATTENDED=1; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "unknown argument: $1 (try --help)" ;;
+        esac
+    done
+    if (( UNATTENDED )) && [[ -z "${TARGET_DISK}" ]]; then
+        die "--unattended requires --target"
+    fi
+}
+
+require_root() {
+    (( EUID == 0 )) || die "this installer must run as root (try: sudo vscodeos-install)"
+}
+
+# Everything the installer will need, checked up front: discovering a missing
+# tool halfway through would leave a half-written disk behind.
+check_resources() {
+    local missing=() tool file
+    for tool in sgdisk wipefs partprobe udevadm mkfs.ext4 mkfs.fat rsync \
+                genfstab arch-chroot lsblk findmnt mkswap; do
+        command -v "${tool}" >/dev/null || missing+=("${tool}")
+    done
+    for file in /usr/share/vscodeos/mkinitcpio-installed.conf \
+                /usr/share/vscodeos/linux.preset; do
+        [[ -r "${file}" ]] || missing+=("${file}")
+    done
+    (( ${#missing[@]} == 0 )) ||
+        die "this system is not a VS Code OS live medium - missing: ${missing[*]}"
+}
+
+detect_firmware() {
+    if [[ -d /sys/firmware/efi/efivars ]]; then
+        FIRMWARE="uefi"
+        if [[ "$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null || echo 64)" == "32" ]]; then
+            EFI_TARGET="i386-efi"
+        else
+            EFI_TARGET="x86_64-efi"
+        fi
+    else
+        FIRMWARE="bios"
+        EFI_TARGET=""
+    fi
+    info "Firmware: ${C_BOLD}${FIRMWARE}${C_RESET}${EFI_TARGET:+ (${EFI_TARGET})}"
+}
+
+# --------------------------------------------------------------------------
+# disk selection
+# --------------------------------------------------------------------------
+
+list_disks() {
+    lsblk -dpno NAME,SIZE,MODEL,TYPE | awk '$NF == "disk" { $NF=""; print }'
+}
+
+pick_disk() {
+    [[ -n "${TARGET_DISK}" ]] && return 0
+
+    local -a disks=()
+    mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" { print $1 }')
+    (( ${#disks[@]} )) || die "no disks found"
+
+    info "Available disks:"
+    local i
+    for i in "${!disks[@]}"; do
+        printf '   %s%d)%s %s\n' "${C_BOLD}" "$(( i + 1 ))" "${C_RESET}" \
+            "$(lsblk -dpno NAME,SIZE,MODEL "${disks[$i]}" | sed 's/  */ /g')"
+    done
+    echo
+
+    local choice
+    while :; do
+        read -rp "Install VS Code OS onto which disk? [1-${#disks[@]}] " choice ||
+            die "no input available - pass --target /dev/sdX instead"
+        if [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#disks[@]} )); then
+            TARGET_DISK="${disks[$(( choice - 1 ))]}"
+            return 0
+        fi
+        warn "please enter a number between 1 and ${#disks[@]}"
+    done
+}
+
+validate_disk() {
+    [[ -b "${TARGET_DISK}" ]] || die "${TARGET_DISK} is not a block device"
+
+    # Refuse to eat the medium we are running from.
+    local live_src
+    live_src="$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
+    if [[ -n "${live_src}" ]]; then
+        local live_disk
+        live_disk="/dev/$(lsblk -no PKNAME "${live_src}" 2>/dev/null || true)"
+        if [[ "${live_disk}" == "${TARGET_DISK}" ]]; then
+            die "${TARGET_DISK} is the medium you booted from - pick another disk"
+        fi
+    fi
+}
+
+confirm_wipe() {
+    (( UNATTENDED )) && return 0
+
+    echo
+    warn "EVERYTHING on ${C_BOLD}${TARGET_DISK}${C_RESET} will be erased:"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINTS "${TARGET_DISK}" | sed 's/^/    /'
+    echo
+    local answer
+    read -rp "Type ${C_BOLD}YES${C_RESET} to continue, anything else to abort: " answer || true
+    [[ "${answer}" == "YES" ]] || die "aborted by user"
+}
+
+# --------------------------------------------------------------------------
+# system configuration questions
+# --------------------------------------------------------------------------
+
+ask_config() {
+    HOSTNAME_NEW="vscodeos"
+    USERNAME_NEW="vscodeos"
+    USERPASS=""
+    ROOTPASS=""
+    TIMEZONE="$(timedatectl show -p Timezone --value 2>/dev/null || echo UTC)"
+    KEYMAP="us"
+    LOCALE="en_US.UTF-8"
+    MAKE_SWAP=1
+
+    if (( UNATTENDED )); then
+        warn "unattended install: user '${USERNAME_NEW}' with password '${USERNAME_NEW}'"
+        USERPASS="${USERNAME_NEW}"
+        ROOTPASS="${USERNAME_NEW}"
+        return 0
+    fi
+
+    echo
+    info "System configuration (press Enter to accept the default in brackets)"
+
+    ask "Hostname" HOSTNAME_NEW
+    while :; do
+        ask "Username" USERNAME_NEW
+        [[ "${USERNAME_NEW}" =~ ^[a-z_][a-z0-9_-]*$ ]] && break
+        warn "invalid username: use lowercase letters, digits, '-' and '_'"
+    done
+
+    USERPASS="$(ask_password "  Password for ${USERNAME_NEW}")"
+    if ask_yes "Use the same password for root?" Y; then
+        ROOTPASS="${USERPASS}"
+    else
+        ROOTPASS="$(ask_password "  Password for root")"
+    fi
+
+    ask "Timezone" TIMEZONE
+    if [[ ! -f "/usr/share/zoneinfo/${TIMEZONE}" ]]; then
+        warn "unknown timezone '${TIMEZONE}', falling back to UTC"
+        TIMEZONE="UTC"
+    fi
+
+    ask "Console keymap" KEYMAP
+    ask "Locale" LOCALE
+    ask_yes "Create a swap file sized to RAM (max 8G)?" Y || MAKE_SWAP=0
+
+    return 0
+}
+
+# Prompt with the variable's current value as the default, and write the
+# answer back into that variable. Never fails, so `set -e` stays happy when
+# the user just presses Enter.
+ask() {
+    local prompt="$1" varname="$2" current="${!2}" reply=""
+    read -rp "  ${prompt} [${current}]: " reply || true
+    [[ -n "${reply}" ]] && printf -v "${varname}" '%s' "${reply}"
+    return 0
+}
+
+ask_yes() {
+    local prompt="$1" default="${2:-Y}" hint reply=""
+    [[ "${default}" == "Y" ]] && hint="Y/n" || hint="y/N"
+    read -rp "  ${prompt} [${hint}] " reply || true
+    reply="${reply:-${default}}"
+    [[ "${reply}" =~ ^[Yy] ]]
+}
+
+ask_password() {
+    local prompt="$1" p1 p2
+    while :; do
+        read -rsp "${prompt}: " p1 || die "no input available for '${prompt}'"
+        echo >&2
+        [[ -z "${p1}" ]] && { warn "password may not be empty"; continue; }
+        read -rsp "${prompt} (again): " p2 || die "no input available for '${prompt}'"
+        echo >&2
+        [[ "${p1}" == "${p2}" ]] && { printf '%s' "${p1}"; return 0; }
+        warn "passwords did not match, try again"
+    done
+}
+
+# --------------------------------------------------------------------------
+# partitioning
+# --------------------------------------------------------------------------
+
+partition_disk() {
+    info "Partitioning ${TARGET_DISK}"
+
+    # Drop anything holding the disk open before repartitioning: a previous
+    # install's partitions may have been auto-mounted or used as swap.
+    swapoff --all 2>/dev/null || true
+    local part
+    while read -r part; do
+        [[ -n "${part}" ]] || continue
+        swapoff "${part}" 2>/dev/null || true
+        umount --recursive "${part}" 2>/dev/null || true
+    done < <(lsblk --list --noheadings --paths --output NAME "${TARGET_DISK}" | tail -n +2)
+    wipefs --all --force "${TARGET_DISK}" >/dev/null
+    sgdisk --zap-all "${TARGET_DISK}" >/dev/null
+
+    if [[ "${FIRMWARE}" == "uefi" ]]; then
+        sgdisk --clear \
+            --new=1:0:+1024M --typecode=1:ef00 --change-name=1:VSCODEOS_ESP \
+            --new=2:0:0      --typecode=2:8304 --change-name=2:VSCODEOS_ROOT \
+            "${TARGET_DISK}" >/dev/null
+    else
+        # GPT + a 1 MiB BIOS boot partition keeps one partitioning scheme for
+        # both firmware types while staying GRUB-installable on legacy BIOS.
+        sgdisk --clear \
+            --new=1:0:+1M --typecode=1:ef02 --change-name=1:VSCODEOS_BIOS \
+            --new=2:0:0   --typecode=2:8304 --change-name=2:VSCODEOS_ROOT \
+            "${TARGET_DISK}" >/dev/null
+    fi
+
+    partprobe "${TARGET_DISK}" >/dev/null 2>&1 || true
+    udevadm settle
+
+    # NVMe/mmc devices use a "p" separator: /dev/nvme0n1p1, /dev/sda1.
+    local sep=""
+    [[ "${TARGET_DISK}" =~ ^/dev/(nvme|mmcblk|loop) ]] && sep="p"
+    PART_BOOT="${TARGET_DISK}${sep}1"
+    PART_ROOT="${TARGET_DISK}${sep}2"
+
+    local tries=0
+    while [[ ! -b "${PART_ROOT}" ]] && (( tries++ < 20 )); do sleep 0.5; done
+    [[ -b "${PART_ROOT}" ]] || die "root partition ${PART_ROOT} never appeared"
+
+    info "Creating filesystems"
+    if [[ "${FIRMWARE}" == "uefi" ]]; then
+        mkfs.fat -F32 -n VSCODEOS_ESP "${PART_BOOT}" >/dev/null
+    fi
+    mkfs.ext4 -F -L VSCODEOS "${PART_ROOT}" >/dev/null
+    ok "filesystems ready"
+}
+
+mount_target() {
+    MOUNT_POINT="$(mktemp -d /mnt/vscodeos-install.XXXXXX)"
+    mount "${PART_ROOT}" "${MOUNT_POINT}"
+    CLEANUP_MOUNTS+=("${MOUNT_POINT}")
+
+    if [[ "${FIRMWARE}" == "uefi" ]]; then
+        # The ESP holds the boot loader only. Keeping /boot itself on ext4
+        # means the kernel and initramfs land on a filesystem that has real
+        # ownership and permissions, which FAT32 cannot represent.
+        mkdir -p "${MOUNT_POINT}/boot/efi"
+        mount "${PART_BOOT}" "${MOUNT_POINT}/boot/efi"
+        CLEANUP_MOUNTS+=("${MOUNT_POINT}/boot/efi")
+    fi
+    ok "mounted at ${MOUNT_POINT}"
+}
+
+# --------------------------------------------------------------------------
+# copy the live system
+# --------------------------------------------------------------------------
+
+copy_system() {
+    info "Copying the system (this is the long part - a few minutes)"
+
+    local -a excludes=()
+    local e
+    for e in "${ROOT_EXCLUDES[@]}"; do excludes+=(--exclude="${e}"); done
+    excludes+=(--exclude="${MOUNT_POINT}")
+    excludes+=(--exclude="/boot/efi/*")
+
+    # rsync reports 23/24 when it skips sockets or a file vanished mid-copy,
+    # both of which are expected on a running system; anything else is fatal.
+    local rc=0
+    rsync -aHAXx --numeric-ids --info=progress2 \
+        "${excludes[@]}" / "${MOUNT_POINT}/" || rc=$?
+    case "${rc}" in
+        0|23|24) ;;
+        *) die "rsync failed with status ${rc}" ;;
+    esac
+
+    # Directories rsync skipped because they are API mounts or excluded.
+    mkdir -p "${MOUNT_POINT}"/{dev,proc,sys,tmp,run,mnt,media}
+    chmod 1777 "${MOUNT_POINT}/tmp"
+
+    # The kernel normally comes across with everything else. If the medium
+    # kept it only on the ISO filesystem, take it from there rather than
+    # leaving an unbootable install behind.
+    if [[ ! -f "${MOUNT_POINT}/boot/vmlinuz-linux" ]]; then
+        local iso_boot="/run/archiso/bootmnt/arch/boot/x86_64"
+        [[ -f "${iso_boot}/vmlinuz-linux" ]] ||
+            die "no kernel found in the copied system or on the boot medium"
+        info "Taking the kernel from the boot medium"
+        install -Dm0644 "${iso_boot}/vmlinuz-linux" "${MOUNT_POINT}/boot/vmlinuz-linux"
+        local ucode
+        for ucode in intel-ucode amd-ucode; do
+            if [[ -f "/run/archiso/bootmnt/arch/boot/${ucode}.img" ]]; then
+                install -Dm0644 "/run/archiso/bootmnt/arch/boot/${ucode}.img" \
+                    "${MOUNT_POINT}/boot/${ucode}.img"
+            fi
+        done
+    fi
+    ok "system copied"
+}
+
+# --------------------------------------------------------------------------
+# turn the copy into an installed system
+# --------------------------------------------------------------------------
+
+chroot_run() {
+    arch-chroot "${MOUNT_POINT}" /bin/bash -c "$*"
+}
+
+configure_system() {
+    info "Configuring the installed system"
+
+    genfstab -U "${MOUNT_POINT}" > "${MOUNT_POINT}/etc/fstab"
+
+    # Live-medium leftovers that must not survive onto a real disk.
+    rm -f  "${MOUNT_POINT}/etc/mkinitcpio.conf.d/archiso.conf"
+    rm -f  "${MOUNT_POINT}/etc/mkinitcpio.d/linux.preset"
+    rm -f  "${MOUNT_POINT}/etc/systemd/system/etc-pacman.d-gnupg.mount"
+    rm -f  "${MOUNT_POINT}/etc/sudoers.d/vscodeos"
+    rm -rf "${MOUNT_POINT}/etc/systemd/system/multi-user.target.wants/vscodeos-live"*
+    rm -rf "${MOUNT_POINT}/root/.automated_script.sh"
+    rm -rf "${MOUNT_POINT}/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+
+    install -Dm0644 /usr/share/vscodeos/mkinitcpio-installed.conf \
+        "${MOUNT_POINT}/etc/mkinitcpio.conf.d/vscodeos.conf"
+    install -Dm0644 /usr/share/vscodeos/linux.preset \
+        "${MOUNT_POINT}/etc/mkinitcpio.d/linux.preset"
+
+    # sudo: wheel members authenticate with their own password.
+    printf '%%wheel ALL=(ALL:ALL) ALL\n' > "${MOUNT_POINT}/etc/sudoers.d/10-wheel"
+    chmod 0440 "${MOUNT_POINT}/etc/sudoers.d/10-wheel"
+
+    # Locale / time / keyboard.
+    printf '%s\n' "${HOSTNAME_NEW}" > "${MOUNT_POINT}/etc/hostname"
+    cat > "${MOUNT_POINT}/etc/hosts" <<EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME_NEW}.localdomain ${HOSTNAME_NEW}
+EOF
+    printf 'KEYMAP=%s\nFONT=lat9w-16\n' "${KEYMAP}" > "${MOUNT_POINT}/etc/vconsole.conf"
+    printf 'LANG=%s\n' "${LOCALE}" > "${MOUNT_POINT}/etc/locale.conf"
+    grep -q "^${LOCALE}" "${MOUNT_POINT}/etc/locale.gen" 2>/dev/null \
+        || printf '%s UTF-8\n' "${LOCALE}" >> "${MOUNT_POINT}/etc/locale.gen"
+
+    chroot_run "ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime && hwclock --systohc || true"
+    chroot_run "locale-gen"
+
+    # Keyboard layout for X, mirroring the console keymap.
+    install -Dm0644 /dev/stdin "${MOUNT_POINT}/etc/X11/xorg.conf.d/00-keyboard.conf" <<EOF
+Section "InputClass"
+    Identifier "system-keyboard"
+    MatchIsKeyboard "on"
+    Option "XkbLayout" "${KEYMAP}"
+EndSection
+EOF
+
+    configure_users
+    configure_autologin
+    setup_swap
+
+    info "Rebuilding the initramfs"
+    chroot_run "mkinitcpio -P"
+    ok "system configured"
+}
+
+configure_users() {
+    # The live image ships a 'vscodeos' account; rename it if the user asked
+    # for something else so the kiosk home keeps all of its configuration.
+    if [[ "${USERNAME_NEW}" != "vscodeos" ]]; then
+        info "Renaming the kiosk account to '${USERNAME_NEW}'"
+        chroot_run "usermod --login '${USERNAME_NEW}' --home '/home/${USERNAME_NEW}' --move-home vscodeos"
+        chroot_run "groupmod --new-name '${USERNAME_NEW}' vscodeos || true"
+    fi
+
+    chroot_run "usermod -aG wheel,audio,video,storage,optical,network,input,lp,rfkill '${USERNAME_NEW}'"
+    printf '%s:%s\n' "${USERNAME_NEW}" "${USERPASS}" | chroot_run "chpasswd"
+    printf 'root:%s\n' "${ROOTPASS}" | chroot_run "chpasswd"
+    chroot_run "chown -R '${USERNAME_NEW}:${USERNAME_NEW}' '/home/${USERNAME_NEW}'"
+    ok "accounts configured"
+}
+
+configure_autologin() {
+    # Autologin on tty1 is what starts the kiosk; it has to point at whatever
+    # the account ended up being called.
+    install -Dm0644 /dev/stdin \
+        "${MOUNT_POINT}/etc/systemd/system/getty@tty1.service.d/autologin.conf" <<EOF
+# VS Code OS: start the kiosk session without a display manager.
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --autologin ${USERNAME_NEW} --noclear --noissue %I \$TERM
+Type=idle
+EOF
+}
+
+setup_swap() {
+    (( MAKE_SWAP )) || return 0
+
+    local mem_kb size_mb
+    mem_kb="$(awk '/MemTotal/ { print $2 }' /proc/meminfo)"
+    size_mb=$(( mem_kb / 1024 ))
+    (( size_mb > 8192 )) && size_mb=8192
+    (( size_mb < 512 )) && size_mb=512
+
+    info "Creating a ${size_mb} MiB swap file"
+    if ! fallocate -l "${size_mb}M" "${MOUNT_POINT}/swapfile" 2>/dev/null; then
+        dd if=/dev/zero of="${MOUNT_POINT}/swapfile" bs=1M count="${size_mb}" status=none
+    fi
+    chmod 0600 "${MOUNT_POINT}/swapfile"
+    mkswap "${MOUNT_POINT}/swapfile" >/dev/null
+    printf '/swapfile none swap defaults 0 0\n' >> "${MOUNT_POINT}/etc/fstab"
+}
+
+install_bootloader() {
+    info "Installing GRUB (${FIRMWARE})"
+
+    if [[ "${FIRMWARE}" == "uefi" ]]; then
+        # --removable writes EFI/BOOT/BOOTX64.EFI, which every firmware finds
+        # even when it ignores NVRAM entries; the second call additionally
+        # registers a named boot entry where that works.
+        chroot_run "grub-install --target=${EFI_TARGET} --efi-directory=/boot/efi --bootloader-id=VSCodeOS --removable"
+        chroot_run "grub-install --target=${EFI_TARGET} --efi-directory=/boot/efi --bootloader-id=VSCodeOS" || true
+    else
+        chroot_run "grub-install --target=i386-pc --recheck '${TARGET_DISK}'"
+    fi
+
+    install -Dm0644 /dev/stdin "${MOUNT_POINT}/etc/default/grub" <<'EOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=3
+GRUB_DISTRIBUTOR="VS Code OS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"
+GRUB_CMDLINE_LINUX=""
+GRUB_PRELOAD_MODULES="part_gpt part_msdos"
+GRUB_TIMEOUT_STYLE=menu
+GRUB_TERMINAL_INPUT=console
+GRUB_GFXMODE=auto
+GRUB_GFXPAYLOAD_LINUX=keep
+GRUB_DISABLE_RECOVERY=false
+EOF
+
+    # GRUB_DISABLE_RECOVERY=false above adds a "(recovery mode)" entry that
+    # boots to a console instead of the kiosk, so a broken editor session never
+    # means an unbootable machine.
+    chroot_run "grub-mkconfig -o /boot/grub/grub.cfg"
+    ok "bootloader installed"
+}
+
+# --------------------------------------------------------------------------
+# teardown
+# --------------------------------------------------------------------------
+
+cleanup() {
+    local rc=$?
+    local m
+    for (( m = ${#CLEANUP_MOUNTS[@]} - 1; m >= 0; m-- )); do
+        umount --recursive "${CLEANUP_MOUNTS[$m]}" 2>/dev/null || true
+    done
+    [[ -n "${MOUNT_POINT}" && -d "${MOUNT_POINT}" ]] && rmdir "${MOUNT_POINT}" 2>/dev/null
+    if (( rc != 0 )); then
+        warn "installation did not finish (exit ${rc}); the target disk may be incomplete"
+    fi
+    return 0
+}
+
+finish() {
+    sync
+    echo
+    ok "VS Code OS is installed on ${C_BOLD}${TARGET_DISK}${C_RESET}"
+    echo
+    printf '   user: %s\n   host: %s\n\n' "${USERNAME_NEW}" "${HOSTNAME_NEW}"
+    info "Remove the installation medium and reboot."
+    if (( ! UNATTENDED )); then
+        local answer=""
+        read -rp "Reboot now? [y/N] " answer || true
+        if [[ "${answer:-N}" =~ ^[Yy] ]]; then
+            systemctl reboot
+        fi
+    fi
+    return 0
+}
+
+main() {
+    parse_args "$@"
+    require_root
+    check_resources
+    banner
+    trap cleanup EXIT
+    detect_firmware
+    pick_disk
+    validate_disk
+    ask_config
+    confirm_wipe
+    partition_disk
+    mount_target
+    copy_system
+    configure_system
+    install_bootloader
+    finish
+}
+
+main "$@"

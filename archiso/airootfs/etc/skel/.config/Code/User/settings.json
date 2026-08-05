@@ -1,0 +1,39 @@
+{
+  "// VS Code OS": "System defaults. Anything you change here is yours to keep.",
+
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.startupEditor": "readme",
+  "workbench.tips.enabled": false,
+
+  "window.titleBarStyle": "native",
+  "window.menuBarVisibility": "hidden",
+  "window.restoreWindows": "all",
+  "window.newWindowDimensions": "maximized",
+  "window.closeWhenEmpty": false,
+  "window.confirmSaveUntitledWorkspace": false,
+
+  "update.mode": "none",
+  "update.showReleaseNotes": false,
+  "extensions.autoCheckUpdates": true,
+
+  "security.workspace.trust.enabled": false,
+
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  "editor.fontFamily": "'JetBrainsMono Nerd Font', 'JetBrains Mono', 'Fira Code', 'Liberation Mono', monospace",
+  "editor.fontLigatures": true,
+  "editor.fontSize": 14,
+  "editor.minimap.enabled": false,
+  "editor.renderWhitespace": "boundary",
+  "editor.bracketPairColorization.enabled": true,
+
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font', monospace",
+
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "telemetry.feedback.enabled": false
+}

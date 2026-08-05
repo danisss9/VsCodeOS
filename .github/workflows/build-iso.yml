@@ -1,0 +1,167 @@
+name: Build ISO
+
+# Tagging the repository builds a bootable VS Code OS image and publishes it as
+# a GitHub release:
+#
+#     git tag v1.0.0 && git push origin v1.0.0
+#
+# The workflow can also be run by hand from the Actions tab, which produces a
+# downloadable build artifact without touching releases.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      vscode_version:
+        description: 'VS Code version to bundle ("latest" or e.g. 1.98.2)'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-iso-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the profile
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        # A full Arch bootstrap plus the squashfs and the ISO needs more room
+        # than a stock runner leaves on /.
+        run: |
+          echo "before:"; df -h / /mnt | tail -2
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/.ghcup \
+                      /usr/share/swift /usr/local/share/powershell \
+                      "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}"
+          sudo docker image prune --all --force || true
+          # The build tree (pacstrap root + squashfs) goes on /mnt, which is
+          # the roomy ephemeral disk; only the finished ISO lands on /.
+          sudo mkdir -p /mnt/vscodeos-work
+          sudo chmod 0777 /mnt/vscodeos-work
+          echo "after:"; df -h / /mnt | tail -2
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(date +%Y.%m.%d)-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Building VS Code OS ${version}"
+
+      - name: Build the ISO
+        # mkarchiso builds a chroot and mounts API filesystems inside it, which
+        # a plain `container:` job cannot do - hence a privileged container
+        # started by hand.
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+          VSCODE_VERSION: ${{ github.event.inputs.vscode_version || 'latest' }}
+        run: |
+          docker run --rm --privileged \
+            -v "${PWD}:/build" \
+            -v /mnt/vscodeos-work:/work \
+            -w /build \
+            -e ISO_VERSION="${BUILD_VERSION}" \
+            -e VSCODE_VERSION="${VSCODE_VERSION}" \
+            archlinux:latest \
+            bash -euo pipefail -c '
+              pacman -Sy --noconfirm --needed archlinux-keyring
+              pacman -Su --noconfirm --needed archiso git
+              git config --global --add safe.directory /build
+              ./scripts/build-iso.sh -v "${ISO_VERSION}" -w /work -o /build/out
+            '
+
+      - name: Collect the artefacts
+        id: artefacts
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" out
+          iso="$(ls out/*.iso | head -1)"
+          echo "iso=${iso}" >> "$GITHUB_OUTPUT"
+          echo "iso_name=$(basename "${iso}")" >> "$GITHUB_OUTPUT"
+          {
+            echo "### VS Code OS ${{ steps.version.outputs.version }}"
+            echo
+            echo '| File | Size | SHA-256 |'
+            echo '| --- | --- | --- |'
+            for f in out/*.iso; do
+              printf '| `%s` | %s | `%s` |\n' \
+                "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            echo
+            echo '```'
+            cat /mnt/vscodeos-work/profile/airootfs/usr/share/vscodeos/build-info 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the ISO as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSCodeOS-${{ steps.version.outputs.version }}
+          path: |
+            out/*.iso
+            out/*.sha256
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ISO_NAME: ${{ steps.artefacts.outputs.iso_name }}
+        run: |
+          cat > release-notes.md <<EOF
+          A minimal Arch Linux system that boots straight into Visual Studio Code.
+          The editor starts fullscreen on login and cannot be closed or minimised.
+
+          ## Writing the image
+
+          The download is a hybrid ISO: the same file boots from a USB stick or a
+          burned CD/DVD, on both UEFI and legacy BIOS machines.
+
+          **Linux / macOS**
+
+          \`\`\`bash
+          sudo dd if=${ISO_NAME} of=/dev/sdX bs=4M status=progress oflag=sync
+          \`\`\`
+
+          **Windows** — use [Rufus](https://rufus.ie) or [balenaEtcher](https://etcher.balena.io) in DD/image mode.
+
+          ## Installing
+
+          Boot the medium and VS Code comes up on its own. To install onto the
+          machine, open the integrated terminal in the editor and run:
+
+          \`\`\`bash
+          sudo vscodeos-install
+          \`\`\`
+
+          The installer copies the running system to disk, so it needs no
+          network connection.
+
+          ## Verifying the download
+
+          \`\`\`bash
+          sha256sum -c ${ISO_NAME}.sha256
+          \`\`\`
+          EOF
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "VS Code OS ${VERSION}" \
+            --notes-file release-notes.md \
+            --generate-notes \
+            --verify-tag \
+            out/*.iso out/*.sha256

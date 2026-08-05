@@ -1,0 +1,14 @@
+// VS Code OS kiosk keybindings.
+//
+// Every shortcut that could quit the editor, close its only window or leave
+// fullscreen is unbound here. The window manager blocks the equivalent
+// Alt+F4 / Alt+Space route, so the editor stays on screen.
+[
+  { "key": "ctrl+q",             "command": "-workbench.action.quit" },
+  { "key": "ctrl+shift+w",       "command": "-workbench.action.closeWindow" },
+  { "key": "ctrl+w",             "command": "-workbench.action.closeWindow" },
+  { "key": "alt+f4",             "command": "-workbench.action.closeWindow" },
+  { "key": "ctrl+k f",           "command": "-workbench.action.closeFolder" },
+  { "key": "f11",                "command": "-workbench.action.toggleFullScreen" },
+  { "key": "ctrl+k ctrl+f",      "command": "editor.action.formatSelection" }
+]

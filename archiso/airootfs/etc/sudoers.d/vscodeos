@@ -1,0 +1,5 @@
+# VS Code OS: members of wheel may use sudo.
+# On the live medium this is passwordless so the installer can be launched from
+# the kiosk terminal; `vscodeos-install` tightens this on the installed system.
+%wheel ALL=(ALL:ALL) ALL
+vscodeos ALL=(ALL:ALL) NOPASSWD: ALL

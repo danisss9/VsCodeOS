@@ -1,0 +1,3 @@
+#!/bin/sh
+# VS Code OS: make `code` work from any shell, editor terminal or script.
+exec /opt/visual-studio-code/bin/code "$@"

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- VS Code OS: intentionally empty. The kiosk has no desktop menu. -->
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="VS Code OS"/>
+</openbox_menu>
