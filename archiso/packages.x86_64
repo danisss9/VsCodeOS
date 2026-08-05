@@ -1,7 +1,24 @@
 # Base system
 base
 linux
-linux-firmware
+# The linux-firmware metapackage pulls ~773 MB of blobs, and firmware is already
+# compressed, so squashfs cannot claw any of it back - it lands on the ISO
+# roughly 1:1 and was most of what pushed us past the 2 GiB release-asset limit.
+# Only the subpackages a PC live medium can actually use are listed. Dropped:
+# qcom (Snapdragon SoC - phones/ARM laptops; Qualcomm *Wi-Fi* is ath1xk/qca and
+# ships in linux-firmware-atheros), mellanox and qlogic and nfp and liquidio
+# (datacenter NICs and Fibre Channel HBAs).
+linux-firmware-intel
+linux-firmware-atheros
+linux-firmware-realtek
+linux-firmware-mediatek
+linux-firmware-broadcom
+linux-firmware-marvell
+linux-firmware-amdgpu
+linux-firmware-radeon
+linux-firmware-nvidia
+linux-firmware-cirrus
+linux-firmware-other
 intel-ucode
 amd-ucode
 mkinitcpio

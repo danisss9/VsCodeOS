@@ -110,6 +110,21 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # A release asset over 2 GiB is rejected by the uploads API, which used to
+      # surface as an HTTP 422 in the publish job - after both images had built.
+      # Failing here instead costs minutes rather than the whole run.
+      - name: Check the ISO fits a release asset
+        run: |
+          limit=$((2 * 1024 * 1024 * 1024))
+          for f in out/*.iso; do
+            size=$(stat -c%s "$f")
+            printf '%s: %s bytes (limit %s)\n' "$(basename "$f")" "$size" "$limit"
+            if (( size >= limit )); then
+              echo "::error::$(basename "$f") is $((size / 1048576)) MiB; GitHub rejects release assets of 2 GiB or more. Trim archiso/packages.x86_64."
+              exit 1
+            fi
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: VSCodeOS-${{ needs.version.outputs.version }}-x86_64
