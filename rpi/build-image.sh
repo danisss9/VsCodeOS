@@ -95,11 +95,62 @@ umount_tree() {
     return 0
 }
 
+# Processes that were started inside the image. pacman-key leaves a gpg-agent
+# and a dirmngr running behind it - that is how GnuPG works, the agent outlives
+# the command that needed it - and they hold the chroot's /dev busy through
+# their own stdio long after the last chroot has exited. That is what used to
+# fail the build on the very last step, with the image otherwise complete.
+chroot_pids() {
+    local proc root
+    for proc in /proc/[0-9]*; do
+        root="$(readlink "${proc}/root" 2>/dev/null)" || continue
+        [[ "${root}" == "${ROOT_MNT}" || "${root}" == "${ROOT_MNT}/"* ]] || continue
+        printf '%s\n' "${proc##*/}"
+    done
+}
+
+# Best-effort answer to "who is still holding this?", for the build log.
+mount_holders() {
+    local target="$1" proc link dest
+    for proc in /proc/[0-9]*; do
+        for link in "${proc}/root" "${proc}/cwd" "${proc}"/fd/*; do
+            dest="$(readlink "${link}" 2>/dev/null)" || continue
+            [[ "${dest}" == "${target}" || "${dest}" == "${target}/"* ]] || continue
+            printf '    pid %s (%s)\n' "${proc##*/}" \
+                "$(tr -d '\0' < "${proc}/comm" 2>/dev/null)"
+            break
+        done
+    done
+}
+
+# Ask everything still running inside the image to leave, then insist.
+stop_chroot_processes() {
+    [[ -n "${ROOT_MNT}" && -d "${ROOT_MNT}" ]] || return 0
+    # GnuPG has a supported way of being asked; killing the agent takes the
+    # dirmngr with it and leaves the keyring in the image intact.
+    chroot "${ROOT_MNT}" gpgconf --homedir /etc/pacman.d/gnupg --kill all \
+        >/dev/null 2>&1 || true
+
+    local -a pids
+    local signal waited
+    for signal in TERM KILL; do
+        for (( waited = 0; waited < 5; waited++ )); do
+            mapfile -t pids < <(chroot_pids)
+            (( ${#pids[@]} )) || return 0
+            kill "-${signal}" "${pids[@]}" 2>/dev/null || true
+            sleep 1
+        done
+    done
+    mapfile -t pids < <(chroot_pids)
+    (( ${#pids[@]} == 0 ))
+}
+
 cleanup() {
     local rc=$?
     set +e
     if [[ -n "${ROOT_MNT}" && -d "${ROOT_MNT}" ]]; then
         local m
+        stop_chroot_processes
         for m in dev/pts dev proc sys run var/cache/pacman/pkg boot ""; do
             # A lazy unmount is acceptable here but not on the success path:
             # this only runs when the build has already failed.
@@ -476,11 +527,19 @@ done
 [[ -s "${ROOT_MNT}/boot/start4.elf" || -s "${ROOT_MNT}/boot/start.elf" ]] ||
     die "Raspberry Pi firmware (start*.elf) is missing from /boot"
 
+# Nothing chroots into the image after this point, so anything still running in
+# there is a leftover daemon, and every mount below is one it can pin.
+msg "stopping anything still running inside the image"
+stop_chroot_processes ||
+    msg "  something inside the image will not exit - its mounts are detached below"
+
 msg "detaching the package cache"
 # The downloads went to the work directory, so there is nothing to delete here:
 # unmounting simply leaves the image's own (empty) cache directory in place.
-umount_tree "${ROOT_MNT}/var/cache/pacman/pkg" ||
+umount_tree "${ROOT_MNT}/var/cache/pacman/pkg" || {
+    mount_holders "${ROOT_MNT}/var/cache/pacman/pkg" >&2
     die "could not unmount the package cache"
+}
 rm -f "${ROOT_MNT}/etc/resolv.conf"
 
 # Zeroing the free space costs a few minutes but shrinks the compressed
@@ -496,8 +555,27 @@ sync
 # --------------------------------------------------------------------------
 
 msg "unmounting"
-for m in dev/pts dev proc sys run var/cache/pacman/pkg boot ""; do
-    umount_tree "${ROOT_MNT}/${m}" || die "could not unmount ${ROOT_MNT}/${m}"
+# /dev, /proc, /sys, /run and the package cache are the host's own filesystems,
+# borrowed for the chroot; none of them is part of the image. If one is still
+# busy, detaching it lazily costs the build nothing and gets it out of the way
+# of the two mounts that do carry data.
+for m in dev/pts dev proc sys run var/cache/pacman/pkg; do
+    umount_tree "${ROOT_MNT}/${m}" && continue
+    mountpoint -q "${ROOT_MNT}/${m}" || continue
+    msg "  ${m} is still busy - detaching it lazily (it holds no image data)"
+    mount_holders "${ROOT_MNT}/${m}"
+    umount -Rl "${ROOT_MNT}/${m}" || die "could not detach ${ROOT_MNT}/${m}"
+done
+
+# These two are the image. A lazy unmount here would let the loop device go
+# while writes were still in flight, so they have to come down properly - if one
+# of them is pinned, that is a real failure and the artifact is not trustworthy.
+sync
+for m in boot ""; do
+    umount_tree "${ROOT_MNT}/${m}" || {
+        mount_holders "${ROOT_MNT}/${m}" >&2
+        die "could not unmount ${ROOT_MNT}/${m}"
+    }
 done
 losetup -d "${LOOP}"
 LOOP=""
