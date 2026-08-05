@@ -1,0 +1,9 @@
+
+  VS Code OS  -  Arch Linux ARM with Visual Studio Code as the desktop
+
+  Default login: vscodeos / vscodeos   (change it: passwd)
+
+  nmtui                    connect to Wi-Fi
+  code <path>              open something in the running editor
+  sudo pacman -Syu         update the system
+

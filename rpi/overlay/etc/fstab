@@ -1,0 +1,6 @@
+# VS Code OS on Raspberry Pi.
+#
+# PARTUUIDs are fixed by the image builder, so the same card boots whether the
+# Pi sees it as /dev/mmcblk0 (SD) or /dev/sda (USB).
+PARTUUID=c0de0501-01  /boot  vfat  defaults,noatime,fmask=0022,dmask=0022  0 2
+PARTUUID=c0de0501-02  /      ext4  defaults,noatime                        0 1

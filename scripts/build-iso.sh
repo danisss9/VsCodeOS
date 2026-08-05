@@ -12,6 +12,7 @@ set -Eeuo pipefail
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
 readonly PROFILE_SRC="${REPO_ROOT}/archiso"
+readonly ROOTFS_COMMON="${REPO_ROOT}/rootfs-common"
 
 OUT_DIR="${REPO_ROOT}/out"
 WORK_DIR="${REPO_ROOT}/work"
@@ -47,6 +48,11 @@ rm -rf "${WORK_DIR}"
 mkdir -p "${PROFILE}" "${OUT_DIR}"
 cp -a "${PROFILE_SRC}/." "${PROFILE}/"
 
+# The kiosk itself is architecture-neutral and shared with the Raspberry Pi
+# image; the profile's own airootfs holds only the x86/live-medium extras.
+install -d -m 0755 "${PROFILE}/airootfs"
+cp -a "${ROOTFS_COMMON}/." "${PROFILE}/airootfs/"
+
 # Boot menus come from the archiso release we are building against, so they
 # always match the tooling's expectations; only the branding is ours.
 msg "importing boot loader configuration from archiso ${RELENG##*/}"
@@ -64,7 +70,7 @@ find "${PROFILE}"/{syslinux,grub,efiboot} -type f \( -name '*.cfg' -o -name '*.c
 # --------------------------------------------------------------------------
 
 msg "staging Visual Studio Code"
-"${REPO_ROOT}/scripts/fetch-vscode.sh" "${PROFILE}/airootfs" "${VSCODE_VERSION:-latest}"
+"${REPO_ROOT}/scripts/fetch-vscode.sh" "${PROFILE}/airootfs" "${VSCODE_VERSION:-latest}" x64
 
 # The live user's home is /etc/skel, materialised: mkarchiso does not run
 # useradd, so the account's dotfiles have to exist in the image already.

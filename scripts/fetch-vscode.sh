@@ -3,17 +3,26 @@
 # archiso profile, so the ISO ships a ready-to-run editor with no network
 # access required at install time.
 #
-# Usage: scripts/fetch-vscode.sh <airootfs-dir> [version]
+# Usage: scripts/fetch-vscode.sh <rootfs-dir> [version] [arch]
 #
 #   version defaults to "latest"; pin an exact build (e.g. 1.98.2) by passing
 #   it here or by exporting VSCODE_VERSION.
+#   arch is a Microsoft download slug - "x64" or "arm64" - and defaults to
+#   whatever the build host is.
 
 set -Eeuo pipefail
 
-readonly AIROOTFS="${1:?usage: fetch-vscode.sh <airootfs-dir> [version]}"
+readonly AIROOTFS="${1:?usage: fetch-vscode.sh <rootfs-dir> [version] [arch]}"
 readonly VERSION="${2:-${VSCODE_VERSION:-latest}}"
 readonly CHANNEL="${VSCODE_CHANNEL:-stable}"
-readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-x64/${CHANNEL}"
+
+case "${3:-${VSCODE_ARCH:-$(uname -m)}}" in
+    x64|x86_64|amd64)  readonly ARCH="x64" ;;
+    arm64|aarch64)     readonly ARCH="arm64" ;;
+    *) echo "unsupported VS Code architecture: ${3:-$(uname -m)}" >&2; exit 1 ;;
+esac
+
+readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-${ARCH}/${CHANNEL}"
 readonly PREFIX="${AIROOTFS}/opt/visual-studio-code"
 
 [[ -d "${AIROOTFS}" ]] || { echo "no such directory: ${AIROOTFS}" >&2; exit 1; }
@@ -21,7 +30,7 @@ readonly PREFIX="${AIROOTFS}/opt/visual-studio-code"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-echo "==> fetching Visual Studio Code (${VERSION}/${CHANNEL})"
+echo "==> fetching Visual Studio Code (${VERSION}/linux-${ARCH}/${CHANNEL})"
 curl --fail --location --retry 5 --retry-delay 3 --retry-connrefused \
     --silent --show-error -o "${tmp}/code.tar.gz" "${URL}"
 
@@ -45,6 +54,7 @@ install -Dm0644 \
 install -Dm0644 /dev/stdin "${AIROOTFS}/usr/share/vscodeos/vscode-version" <<EOF
 version=${version}
 commit=${commit}
+arch=${ARCH}
 channel=${CHANNEL}
 source=${URL}
 fetched=$(date -u +%Y-%m-%dT%H:%M:%SZ)

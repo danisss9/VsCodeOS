@@ -23,21 +23,36 @@ git, compilers — is reached through the editor's integrated terminal.
 
 ## What you get
 
-| | |
-| --- | --- |
-| **Base** | Arch Linux (rolling, `base` + `linux`), built with `archiso` |
-| **Editor** | Official Visual Studio Code (`stable`, x86-64), in `/opt/visual-studio-code` |
-| **Session** | Xorg + Openbox as a kiosk frame — no panel, no launcher, no desktop |
-| **Toolchain** | git, Node.js, Python, Go, Rust, JDK, base-devel, Docker |
-| **Networking** | NetworkManager (`nmtui` from the terminal), Wi-Fi firmware included |
-| **Firmware** | Boots on UEFI (x64 and ia32) and legacy BIOS from the same image |
-| **Installer** | `vscodeos-install` — offline, copies the live system to disk |
+Two images are published for every release, sharing the same kiosk:
+
+| | `x86_64.iso` (PCs) | `aarch64-rpi.img.xz` (Raspberry Pi) |
+| --- | --- | --- |
+| **Base** | Arch Linux, built with `archiso` | Arch Linux ARM |
+| **Editor** | Official VS Code, `linux-x64` | Official VS Code, `linux-arm64` |
+| **Session** | Xorg + Openbox kiosk — no panel, no launcher, no desktop | same |
+| **Toolchain** | git, Node.js, Python, Go, Rust, JDK, base-devel, Docker | git, Node.js, Python, base-devel |
+| **Boot** | UEFI (x64 and ia32) and legacy BIOS, one hybrid image | Pi firmware from a FAT partition |
+| **Getting it onto a machine** | live medium + `vscodeos-install` | flash the image; it *is* the system |
+
+The Pi image is deliberately leaner: an SD card is small, a Pi has little RAM,
+and the release asset has to stay under GitHub's 2 GiB limit. The heavy
+toolchains are one `pacman -S` away.
+
+### Supported Raspberry Pi models
+
+64-bit boards only: **Pi 5, Pi 4, Pi 400, CM4, Pi 3/3+ and Zero 2 W**. A 4 GB
+Pi 4 or a Pi 5 is what you want — VS Code is an Electron application, and on
+1–2 GB boards it leans hard on the zram swap the image configures. 32-bit-only
+boards (Pi 1, 2, Zero/Zero W) are not supported.
 
 ## Getting an image
 
-Download the ISO from the [latest release](../../releases/latest), then write
-it to a USB stick (or burn it to a CD/DVD — it is a hybrid image, so the same
-file works for both):
+Both images are on the [latest release](../../releases/latest).
+
+### PCs
+
+Write the ISO to a USB stick, or burn it to a CD/DVD — it is a hybrid image, so
+the same file works for both:
 
 ```bash
 sudo dd if=VSCodeOS-<version>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
@@ -49,7 +64,24 @@ in DD/image mode.
 Boot the medium; VS Code appears on its own. Nothing is written to the computer
 until you run the installer.
 
-## Installing onto a computer
+### Raspberry Pi
+
+A Pi cannot boot an ISO — its firmware reads the first FAT partition of the
+card directly, with no BIOS and no stock UEFI — so the Pi target is a flashable
+disk image instead. Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+("Use custom" → pick the `.img.xz`), balenaEtcher, or:
+
+```bash
+xz -dc VSCodeOS-<version>-aarch64-rpi.img.xz |
+  sudo dd of=/dev/sdX bs=4M status=progress oflag=sync
+```
+
+There is no installer step: **the flashed card is the installed system**. On
+first boot the root filesystem expands to fill the card, and the editor comes
+up. The default login is `vscodeos` / `vscodeos` — change it with `passwd` from
+the editor's terminal. Root is locked; use `sudo`.
+
+## Installing onto a PC
 
 Open the integrated terminal in the editor (**Ctrl** + **`**) and run:
 
@@ -85,9 +117,13 @@ The editor is deliberately hard to escape:
 - **No console escape.** `DontVTSwitch` and `DontZap` are set for Xorg, so
   Ctrl+Alt+F2 and Ctrl+Alt+Backspace do not drop out of the session.
 
-Recovery is by design, not by accident: choose **recovery mode** in the GRUB
-menu (or append `systemd.unit=multi-user.target` to the kernel command line) to
-get a plain root console instead of the kiosk.
+Recovery is by design, not by accident, and differs by target:
+
+- **PC** — choose **recovery mode** in the GRUB menu, or append
+  `systemd.unit=multi-user.target` to the kernel command line.
+- **Raspberry Pi** — put the card in any computer and append
+  `systemd.unit=multi-user.target` to `cmdline.txt` on the FAT boot partition.
+  It is plain FAT, so Windows and macOS can edit it too. Keep it to one line.
 
 To relax the kiosk permanently, edit `/etc/default/vscodeos`:
 
@@ -109,26 +145,32 @@ code ~/Projects/thing       # open something in the running editor
 Extensions, settings sync and Marketplace sign-in all work normally;
 `gnome-keyring` is started by the session so credentials persist.
 
-## Building the ISO
+## Building the images
 
 ### With GitHub Actions
 
-Pushing a tag builds the image and publishes a release with the ISO and its
-SHA-256 checksum attached:
+Pushing a tag builds both images in parallel and publishes one release with
+each image and its SHA-256 checksum attached:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The **Build ISO** workflow can also be run manually from the Actions tab —
-useful for testing a change, or for pinning a specific VS Code version. A
-manual run uploads the ISO as a build artifact and does not create a release.
+The x86-64 ISO builds on a standard runner; the Pi image builds on a native
+`ubuntu-24.04-arm` runner, so it can chroot into the image instead of emulating
+every command through QEMU. (These arm64 runners are free for public
+repositories; a private repo needs a plan that includes them.)
+
+The **Build images** workflow can also be run manually from the Actions tab,
+where you can pick one target or both and pin a specific VS Code version. A
+manual run uploads the images as build artifacts and does not create a
+release.
 
 ### Locally
 
-You need Docker (or an Arch host with `archiso` installed) and roughly 20 GB of
-free disk space:
+**x86-64 ISO** — needs Docker (or an Arch host with `archiso`) and roughly
+20 GB of free disk space:
 
 ```bash
 docker run --rm --privileged -v "$PWD:/build" -w /build archlinux:latest \
@@ -137,51 +179,96 @@ docker run --rm --privileged -v "$PWD:/build" -w /build archlinux:latest \
            ./scripts/build-iso.sh -v 1.0.0'
 ```
 
-The finished image lands in `out/`. Test it without leaving your desk:
-
 ```bash
 qemu-system-x86_64 -m 4G -enable-kvm -cdrom out/VSCodeOS-1.0.0-x86_64.iso
 ```
 
+**Raspberry Pi image** — best run on an aarch64 machine (another Pi, an ARM
+laptop, an ARM VM), because the build chroots into the image it is assembling:
+
+```bash
+sudo apt-get install -y libarchive-tools dosfstools e2fsprogs xz-utils util-linux
+sudo ./rpi/build-image.sh -v 1.0.0
+```
+
+On x86-64 the same script works through QEMU's binfmt handler, considerably
+more slowly. Register it first:
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+sudo ./rpi/build-image.sh -v 1.0.0
+```
+
+Both builds write to `out/`.
+
 ## How the repository is laid out
 
 ```
-archiso/
-  profiledef.sh                     archiso profile: image name, boot modes
-  packages.x86_64                   every package installed into the image
-  pacman.conf                       repositories used while building
-  airootfs/                         files overlaid onto the image's root
-    etc/passwd, group, shadow       the kiosk account (uid 1000)
-    etc/systemd/system/             autologin on tty1, enabled services
-    etc/X11/xorg.conf.d/            kiosk hardening (DontVTSwitch, DontZap)
-    etc/default/vscodeos            kiosk settings
-    etc/skel/                       the kiosk user's home: .xinitrc, openbox
+rootfs-common/                      the kiosk, shared by both images
+  etc/passwd, group, shadow         the kiosk account (uid 1000)
+  etc/systemd/system/               autologin on tty1, enabled services
+  etc/X11/xorg.conf.d/              kiosk hardening (DontVTSwitch, DontZap)
+  etc/default/vscodeos              kiosk settings
+  etc/skel/                         the kiosk user's home: .xinitrc, openbox
                                     rules, VS Code settings and keybindings
-    usr/local/bin/vscodeos-kiosk    the session supervisor
-    usr/local/bin/vscodeos-install  the offline installer
-    usr/local/bin/vscodeos-update-code
+  usr/local/bin/vscodeos-kiosk      the session supervisor
+  usr/local/bin/vscodeos-update-code
+
+archiso/                            x86-64 only
+  profiledef.sh                     archiso profile: image name, boot modes
+  packages.x86_64                   packages for the PC image
+  pacman.conf                       repositories used while building
+  airootfs/                         live-medium extras layered over the shared
+                                    rootfs: archiso initramfs hooks, Arch
+                                    mirrors, and vscodeos-install
+
+rpi/                                Raspberry Pi only
+  build-image.sh                    assembles the flashable disk image
+  packages.aarch64                  packages for the Pi image
+  boot/config.txt, cmdline.txt      Raspberry Pi firmware configuration
+  overlay/                          fstab, ALARM mirrors, zram, and the
+                                    first-boot root filesystem expansion
+
 scripts/
   build-iso.sh                      assembles the profile and runs mkarchiso
-  fetch-vscode.sh                   downloads and stages the VS Code tarball
-.github/workflows/build-iso.yml     tag -> ISO -> GitHub release
+  fetch-vscode.sh                   downloads and stages VS Code (x64 or arm64)
+.github/workflows/build-iso.yml     tag -> both images -> one GitHub release
 ```
 
-Two details worth knowing if you are modifying it:
+Details worth knowing if you are modifying it:
 
+- **The kiosk is shared, the plumbing is not.** Everything in `rootfs-common/`
+  is copied into both images; anything architecture-specific lives in
+  `archiso/airootfs/` or `rpi/overlay/`.
 - **Boot menus are not vendored.** `build-iso.sh` copies `syslinux/`, `grub/`
   and `efiboot/` out of the `archiso` package installed in the build
   environment and rebrands the labels, so the boot configuration always matches
   the version of `mkarchiso` doing the build.
-- **`/home/vscodeos` is materialised at build time** from `etc/skel`, because
-  `mkarchiso` never runs `useradd`; the account itself is declared directly in
-  `airootfs/etc/passwd`.
+- **`/home/vscodeos` is materialised at build time** on the ISO, because
+  `mkarchiso` never runs `useradd`; the account is declared directly in
+  `rootfs-common/etc/passwd`. The Pi build has a working chroot, so it runs
+  `useradd` normally and skips those four files.
+- **The Pi addresses its root filesystem by PARTUUID**, derived from a fixed MBR
+  disk identifier in `build-image.sh`. `cmdline.txt` and `fstab` hardcode the
+  matching values, and the build asserts they agree — a mismatch would be a
+  kernel panic on real hardware.
 
-## Live medium credentials
+## Default credentials
 
-The live ISO logs in automatically as `vscodeos` with no password (root is
-password-less too, as on the official Arch install medium). The installer sets
-real passwords for both accounts on the installed system and replaces the live
-medium's password-less `sudo` rule with a normal `wheel` rule.
+**PC live ISO** — logs in automatically as `vscodeos` with no password (root is
+password-less too, as on the official Arch install medium). Anyone who boots
+the medium therefore has root on that machine, which is true of any live
+medium. The installer sets real passwords for both accounts on the installed
+system and replaces the live medium's password-less `sudo` rule with a normal
+`wheel` rule.
+
+**Raspberry Pi image** — ships with `vscodeos` / `vscodeos` and a locked root
+account, because a flashed card has no installer to ask you for a password.
+`sudo` requires that password. Change it on first boot:
+
+```bash
+passwd
+```
 
 ## Licence
 
@@ -191,4 +278,6 @@ Visual Studio Code is downloaded at build time from Microsoft and remains
 subject to the [Microsoft Software Licence Terms](https://code.visualstudio.com/license);
 those binaries include Microsoft-specific customisations and telemetry, and are
 not the MIT-licensed `vscode` source. Arch Linux packages keep their own
-licences. This project is not affiliated with Microsoft or Arch Linux.
+licences. The Raspberry Pi image is built on [Arch Linux ARM](https://archlinuxarm.org),
+a community project separate from Arch Linux. This project is not affiliated
+with Microsoft, Arch Linux, Arch Linux ARM or Raspberry Pi Ltd.

@@ -1,0 +1,16 @@
+[Unit]
+Description=Expand the VS Code OS root filesystem to fill the media
+DefaultDependencies=no
+Conflicts=shutdown.target
+After=systemd-remount-fs.service
+Before=systemd-user-sessions.service systemd-fsck-root.service shutdown.target
+ConditionPathExists=!/var/lib/vscodeos/rootfs-expanded
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vscodeos-expand-rootfs
+RemainAfterExit=yes
+StandardOutput=journal+console
+
+[Install]
+WantedBy=sysinit.target

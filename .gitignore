@@ -1,8 +1,11 @@
 # Build output
 /out/
 /work/
+/work-rpi/
 *.iso
-*.iso.sha256
+*.img
+*.img.xz
+*.sha256
 
 # Editor / OS noise
 .DS_Store

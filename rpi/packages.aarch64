@@ -1,0 +1,124 @@
+# Packages installed on top of the Arch Linux ARM base for Raspberry Pi.
+#
+# Deliberately leaner than the x86 image: an SD card is small, a Pi has little
+# RAM, and the release artifact has to stay under GitHub's 2 GiB asset limit.
+# Heavy toolchains (Rust, Go, JDK, Docker) are one `pacman -S` away instead.
+
+# Kernel and Raspberry Pi firmware
+linux-rpi
+raspberrypi-bootloader
+raspberrypi-firmware
+firmware-raspberrypi
+linux-firmware-whence
+mkinitcpio
+
+# Base system
+sudo
+polkit
+dbus
+zram-generator
+
+# Networking
+networkmanager
+wpa_supplicant
+wireless-regdb
+openssh
+wget
+curl
+ca-certificates
+
+# Storage helpers
+dosfstools
+e2fsprogs
+exfatprogs
+ntfs-3g
+gvfs
+gvfs-mtp
+udisks2
+parted
+rsync
+
+# Graphics stack (the Pi uses the vc4/v3d KMS driver via modesetting)
+xorg-server
+xorg-xinit
+xorg-xauth
+xorg-xrandr
+xorg-xset
+xorg-xhost
+xorg-xprop
+xorg-xkill
+xorg-xsetroot
+xterm
+openbox
+mesa
+libva-mesa-driver
+xdg-utils
+xdg-user-dirs
+
+# Fonts
+ttf-dejavu
+ttf-liberation
+noto-fonts
+noto-fonts-emoji
+cantarell-fonts
+
+# Audio
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+alsa-utils
+
+# Input
+libinput
+xf86-input-libinput
+
+# Secrets (VS Code account sync / credential storage)
+gnome-keyring
+libsecret
+
+# Runtime dependencies of the official Visual Studio Code arm64 build
+gtk3
+nss
+nspr
+alsa-lib
+libxss
+libxtst
+libxkbcommon
+libxkbcommon-x11
+libdrm
+libcups
+at-spi2-core
+libnotify
+cairo
+pango
+libx11
+libxcomposite
+libxdamage
+libxext
+libxfixes
+libxrandr
+libxcb
+expat
+systemd-libs
+
+# Developer tooling
+git
+base-devel
+nodejs
+npm
+python
+python-pip
+man-db
+less
+nano
+vim
+zip
+unzip
+tree
+htop
+ripgrep
+fd
+bash-completion
+openssl
+gnupg

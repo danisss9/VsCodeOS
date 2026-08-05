@@ -11,7 +11,15 @@ set -Eeuo pipefail
 readonly CHANNEL="${VSCODE_CHANNEL:-stable}"
 readonly VERSION="${VSCODE_VERSION:-latest}"
 readonly PREFIX="/opt/visual-studio-code"
-readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-x64/${CHANNEL}"
+
+# The same script runs on x86-64 PCs and on aarch64 Raspberry Pis.
+case "$(uname -m)" in
+    x86_64)  readonly ARCH="x64" ;;
+    aarch64) readonly ARCH="arm64" ;;
+    *) echo "no Visual Studio Code build for $(uname -m)" >&2; exit 1 ;;
+esac
+
+readonly URL="https://update.code.visualstudio.com/${VERSION}/linux-${ARCH}/${CHANNEL}"
 
 (( EUID == 0 )) || { echo "run as root: sudo vscodeos-update-code" >&2; exit 1; }
 
@@ -43,6 +51,8 @@ rm -rf "${PREFIX}.old"
 [[ -d "${PREFIX}" ]] && mv "${PREFIX}" "${PREFIX}.old"
 mv "${tmp}/unpacked" "${PREFIX}"
 chown -R root:root "${PREFIX}"
+# chown clears the setuid bit, so restore Electron's sandbox helper afterwards.
+[[ -f "${PREFIX}/chrome-sandbox" ]] && chmod 4755 "${PREFIX}/chrome-sandbox"
 rm -rf "${PREFIX}.old"
 
 echo "==> VS Code updated: ${current} -> ${new}"
