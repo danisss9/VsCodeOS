@@ -1,0 +1,5 @@
+# Arch Linux ARM mirrors.
+#
+# Arch Linux ARM is a separate distribution from Arch Linux, with its own
+# repositories; the geo mirror below routes to the nearest one.
+Server = http://mirror.archlinuxarm.org/$arch/$repo

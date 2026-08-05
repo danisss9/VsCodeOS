@@ -1,0 +1,30 @@
+# VS Code OS - Raspberry Pi firmware configuration.
+#
+# Read by the VideoCore firmware before Linux starts. Keep this file on the
+# FAT boot partition; the Pi cannot boot without it.
+
+[all]
+# 64-bit kernel, built by Arch Linux ARM's linux-rpi package.
+arm_64bit=1
+kernel=kernel8.img
+initramfs initramfs-linux.img followkernel
+
+# Full KMS driver: this is what gives Xorg (and therefore VS Code) a working
+# modesetting display and hardware-accelerated compositing on the Pi.
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+disable_overscan=1
+
+dtparam=audio=on
+enable_uart=1
+
+# Small GPU carve-out; the KMS driver allocates from CMA rather than this pool,
+# so there is no reason to starve the system of RAM on a memory-tight board.
+gpu_mem=64
+
+[pi4]
+# Higher clocks on Pi 4 once the firmware has confirmed adequate cooling.
+arm_boost=1
+
+[pi5]
+arm_boost=1

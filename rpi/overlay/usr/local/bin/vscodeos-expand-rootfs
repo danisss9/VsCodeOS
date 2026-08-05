@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Grow the root filesystem to fill the SD card or USB drive.
+#
+# The released image is only as large as its contents, so on first boot the
+# root partition is smaller than the media it was written to. This runs once,
+# expands partition 2 to the end of the device and resizes ext4 onto it, then
+# disables itself.
+
+set -Eeuo pipefail
+
+readonly STAMP="/var/lib/vscodeos/rootfs-expanded"
+
+log() { printf '[vscodeos-expand-rootfs] %s\n' "$*"; }
+
+if [[ -e "${STAMP}" ]]; then
+    log "already expanded, nothing to do"
+    exit 0
+fi
+
+root_source="$(findmnt -no SOURCE /)"
+[[ -n "${root_source}" ]] || { log "cannot determine the root device"; exit 1; }
+
+# findmnt reports the partition (/dev/mmcblk0p2); lsblk gives us its disk.
+parent="$(lsblk -no PKNAME "${root_source}" 2>/dev/null || true)"
+if [[ -z "${parent}" ]]; then
+    log "root is not on a partition (${root_source}) - skipping expansion"
+    install -Dm0644 /dev/null "${STAMP}"
+    exit 0
+fi
+disk="/dev/${parent}"
+partnum="$(lsblk -no PARTN "${root_source}" 2>/dev/null || true)"
+partnum="${partnum:-2}"
+
+before="$(lsblk -bno SIZE "${root_source}")"
+log "expanding ${root_source} (partition ${partnum} of ${disk})"
+
+# Hand the partition the rest of the disk. sfdisk rewrites just this entry and
+# keeps the existing partition type, start sector and disk identifier - the
+# latter matters because the kernel command line addresses root by PARTUUID.
+if ! echo ', +' | sfdisk --no-reread --no-tell-kernel -N "${partnum}" "${disk}"; then
+    log "sfdisk could not grow the partition - leaving the filesystem as is"
+    install -Dm0644 /dev/null "${STAMP}"
+    exit 0
+fi
+
+# Re-read the table. partx works on a mounted disk where partprobe often fails.
+partx --update "${disk}" || true
+udevadm settle || true
+
+resize2fs "${root_source}"
+
+after="$(lsblk -bno SIZE "${root_source}")"
+log "root grew from $(numfmt --to=iec "${before}") to $(numfmt --to=iec "${after}")"
+
+install -Dm0644 /dev/null "${STAMP}"

@@ -167,7 +167,11 @@ confirm_wipe() {
 
     echo
     warn "EVERYTHING on ${C_BOLD}${TARGET_DISK}${C_RESET} will be erased:"
-    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINTS "${TARGET_DISK}" | sed 's/^/    /'
+    # Showing the current layout is a courtesy, not a precondition: a device
+    # lsblk cannot describe should still reach the confirmation prompt rather
+    # than aborting the installer without a word.
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINTS "${TARGET_DISK}" 2>/dev/null | sed 's/^/    /' ||
+        warn "could not read the current partition layout of ${TARGET_DISK}"
     echo
     local answer
     read -rp "Type ${C_BOLD}YES${C_RESET} to continue, anything else to abort: " answer || true
