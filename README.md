@@ -186,6 +186,15 @@ Recovery is by design, not by accident, and differs by target:
   `systemd.unit=multi-user.target` to `cmdline.txt` on the FAT boot partition.
   It is plain FAT, so Windows and macOS can edit it too. Keep it to one line.
 
+A session that cannot start is the one case where the kiosk gets out of your
+way: if `startx` dies three times in a row within seconds, tty1 stops retrying
+and leaves an ordinary shell with the reason on screen — the tail of
+`~/.local/share/vscodeos/xorg-session.log` and, when the X server did come up,
+of `~/.local/share/vscodeos/kiosk.log`. The full X server log is in
+`~/.local/share/xorg/Xorg.0.log`. Without that stop, an auto-logged-in tty1
+answers a broken session by logging straight back in, which looks like the
+machine looping on its login banner.
+
 To relax the kiosk permanently, edit `/etc/default/vscodeos`:
 
 ```bash
@@ -317,7 +326,8 @@ rpi/                                Raspberry Pi only
   build-image.sh                    assembles the flashable disk image
   packages.aarch64                  packages for the Pi image
   boot/config.txt, cmdline.txt      Raspberry Pi firmware configuration
-  overlay/                          fstab, ALARM mirrors, zram, and the
+  overlay/                          fstab, ALARM mirrors, zram, the vc4
+                                    PrimaryGPU rule for Xorg, and the
                                     first-boot root filesystem expansion
 
 scripts/
