@@ -236,6 +236,12 @@ where you can pick one target or both and pin a specific VS Code version. A
 manual run uploads the images as build artifacts and does not create a
 release.
 
+Pull requests run the desktop shell's typecheck, tests and bundle build, and
+nothing else — a couple of minutes, and the only part of a build that fails on
+a code mistake rather than on a mirror or a runner. The images themselves are
+two-hour builds producing gigabyte artifacts, so they stay on tags and manual
+runs.
+
 ### Locally
 
 Both builds compile the desktop shell first, so a local build needs **Node.js**

@@ -10,10 +10,16 @@ name: Build images
 #
 # The workflow can also be run by hand from the Actions tab, which uploads the
 # images as build artifacts without touching releases.
+#
+# Pull requests run the `extension` job and nothing else. It takes a couple of
+# minutes and is the only part of a build that can fail on a code mistake rather
+# than on a mirror or a runner; the image jobs are two-hour builds that produce
+# gigabyte artifacts, and gating every PR on those would buy very little.
 on:
   push:
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
     inputs:
       targets:
@@ -31,11 +37,16 @@ permissions:
 
 concurrency:
   group: build-images-${{ github.ref }}
-  cancel-in-progress: false
+  # A superseded PR check is wasted minutes, but a release build must never be
+  # cancelled out from under a tag.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   version:
     name: Resolve version
+    # Nothing a pull request runs needs a version, and a check that only ever
+    # echoes one is noise on the PR.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -88,7 +99,10 @@ jobs:
   x86_64:
     name: x86-64 ISO
     needs: [version, extension]
-    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["both","x86_64"]'), github.event.inputs.targets)
+    if: >-
+      github.event_name != 'pull_request'
+      && (github.event_name != 'workflow_dispatch'
+          || contains(fromJSON('["both","x86_64"]'), github.event.inputs.targets))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -199,7 +213,10 @@ jobs:
   raspberrypi:
     name: Raspberry Pi image
     needs: [version, extension]
-    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["both","raspberrypi"]'), github.event.inputs.targets)
+    if: >-
+      github.event_name != 'pull_request'
+      && (github.event_name != 'workflow_dispatch'
+          || contains(fromJSON('["both","raspberrypi"]'), github.event.inputs.targets))
     # A native aarch64 runner means the build can chroot into the image
     # directly instead of emulating every command through qemu.
     runs-on: ubuntu-24.04-arm
