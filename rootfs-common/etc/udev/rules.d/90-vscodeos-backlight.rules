@@ -1,0 +1,16 @@
+# VS Code OS: let the desktop shell set the screen brightness.
+#
+# /sys/class/backlight/*/brightness is root-owned by default, and there is no
+# polkit agent in the kiosk session to authorise a helper. Handing the node to
+# the `video` group - which the kiosk user is already in - means the brightness
+# slider in quick settings is a plain write() with no privileged path at all.
+#
+# Machines with no backlight (most desktops, and any Pi without the official DSI
+# panel) simply never match; the shell hides the slider when the class is empty.
+
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+
+# Keyboard backlights, where they exist, on the same terms.
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*kbd_backlight", RUN+="/bin/chgrp video /sys/class/leds/%k/brightness"
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*kbd_backlight", RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"

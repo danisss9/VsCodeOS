@@ -1,0 +1,111 @@
+# VsCodeOsCore
+
+The VS Code OS desktop shell. VS Code OS has no desktop environment — the editor
+*is* the user interface — so this extension supplies the parts of a desktop the
+editor does not have.
+
+It ships as a **built-in extension** in both images (see
+[Packaging](#packaging)), so it is present on first boot and cannot be
+accidentally uninstalled.
+
+## What it adds
+
+| | |
+| --- | --- |
+| **Tray** | Power button, clock and date, battery, volume, network and now-playing, at the right end of the status bar |
+| **Flyouts** | Power, calendar, quick settings, volume mixer, network picker and music player |
+| **Task Manager** | Processes with CPU/RAM, per-core meters, load, uptime and thermals, in the activity bar |
+| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste, open with `xdg-open` |
+| **Music** | MPRIS transport for whatever is playing, plus launchers for Spotify Web and YouTube Music |
+| **Browser** | Launches Edge → Chromium → Firefox, whichever is installed |
+| **Apps** | Calculator, Notepad, Paint, Screenshot and Voice Recorder |
+
+Every feature is behind a `vscodeos.<feature>.enabled` setting, all defaulting to
+on. `VS Code OS: All Apps…` in the command palette lists everything.
+
+## Developing
+
+```bash
+cd extension
+npm install
+npm run watch     # esbuild in watch mode
+```
+
+Then press <kbd>F5</kbd> in VS Code to launch an Extension Development Host. Most
+of it works on any Linux desktop; the `sys/*` modules degrade to a hidden status
+bar item when the binary they need is missing, so a machine without `nmcli` or
+`wpctl` just shows fewer tray items rather than erroring.
+
+```bash
+npm run typecheck  # tsc --noEmit, also run in CI
+npm run package    # production bundles
+```
+
+## Layout
+
+```
+src/
+  extension.ts     activate(): wires everything, one DisposableStore
+  sys/             the only code that touches the machine
+  statusbar/       the tray, and the priority ladder that orders it
+  views/           flyout (panel) and task manager (activity bar) providers
+  apps/            file explorer, mini-apps, panel plumbing
+  webview/         HTML shell + the host↔webview message types
+media/
+  src/             one TypeScript entry point per page, shared code in src/lib
+  css/             one stylesheet, all colours from --vscode-* variables
+  icons/           container and panel icons
+```
+
+`src/webview/protocol.ts` is imported by both sides, so a change to a message
+shape is a compile error in the webview that consumes it.
+
+## Packaging
+
+`scripts/build-extension.sh` (in the repo root) produces the tree that ships:
+
+```
+/usr/share/vscodeos/extensions/vscodeos-core/
+```
+
+and `vscodeos-install-extensions` copies it into
+
+```
+/opt/visual-studio-code/resources/app/extensions/vscodeos-core/
+```
+
+That folder is VS Code's built-in extension directory. It is scanned as a plain
+directory — no `extensions.json`, no marketplace metadata — and built-ins skip
+the engine version check entirely, so a VS Code update can never mark the shell
+incompatible. The trade is that `vscodeos-update-code` replaces the whole app
+tree, so it re-runs `vscodeos-install-extensions --force` afterwards.
+
+Being a built-in has one hard consequence: **stable API only.** Proposed APIs
+for built-in extensions are gated on Microsoft's `product.json`, which we do not
+control.
+
+## Things this cannot do, and why
+
+These are VS Code and Electron limits, not missing work:
+
+- **No popup anchored to a status bar item.** There is no such API. The flyouts
+  are a webview view in the bottom panel, which is why they open above the
+  status bar; the panel's height is workbench layout state with no API, so a
+  flyout opens at whatever height the panel was last left at.
+- **The power button is only rightmost because of a setting.** The notifications
+  bell registers at `NEGATIVE_INFINITY` and extension priorities are clamped to
+  `-Number.MAX_VALUE`, so no extension can outrank it. The images ship
+  `"workbench.notifications.position": "top-right"`, which removes the bell from
+  the status bar. Without it the power button sits second from the right.
+- **No microphone in a webview.** VS Code's Electron main process omits `media`
+  from the permissions it grants webviews, so `getUserMedia({audio:true})` is
+  denied outright. The recorder is a `pw-record` subprocess with a webview UI.
+- **Spotify audio cannot play inside VS Code.** Stock Electron ships no Widevine
+  CDM, so the Web Playback SDK cannot decrypt anything, and `open.spotify.com`
+  refuses to be framed. This is why the music player controls real players over
+  MPRIS and launches the services as browser app windows — Chromium exports
+  MPRIS, so playback there is fully controllable from the tray.
+- **Root-owned processes cannot be ended directly.** There is no polkit
+  authentication agent in the kiosk session, so `pkexec` has nothing to prompt
+  with. End task on another user's process opens a terminal with
+  `sudo kill -9 <pid>` ready to run instead.

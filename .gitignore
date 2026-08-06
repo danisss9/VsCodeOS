@@ -11,6 +11,13 @@
 # pacman sync databases, dropped in the working tree by a build run from here
 *.db
 
+# Extension build output. The sources are committed; the bundles are not.
+/extension/node_modules/
+/extension/dist/
+/extension/out/
+/extension/media/dist/
+/extension-dist/
+
 # Editor / OS noise
 .DS_Store
 *.swp

@@ -1,0 +1,47 @@
+/* VS Code OS: let the kiosk session act on the machine without a password prompt.
+ *
+ * There is no polkit authentication agent in this session - the whole desktop is
+ * VS Code, and there is nowhere for an agent to draw a dialog. Any action that
+ * resolves to auth_admin therefore does not prompt, it simply fails, silently,
+ * from the user's point of view. These grants cover exactly the actions the
+ * desktop shell (VsCodeOsCore) needs and nothing more.
+ *
+ * systemd's own policy already answers `yes` to power-off/reboot/suspend for an
+ * active seat session, but only while no *other* session is logged in;
+ * logind.conf.d/vscodeos.conf keeps six gettys around, and a login on one of
+ * them would otherwise turn the shutdown button into a silent no-op.
+ *
+ * NetworkManager is the more important half: upstream ships
+ * settings.modify.system as auth_admin_keep, so without this the Wi-Fi list in
+ * the tray would show networks it could never join.
+ */
+
+polkit.addRule(function (action, subject) {
+    if (!subject.isInGroup("wheel") || !subject.local || !subject.active) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    if (action.id.indexOf("org.freedesktop.login1.power-off") === 0
+        || action.id.indexOf("org.freedesktop.login1.reboot") === 0
+        || action.id.indexOf("org.freedesktop.login1.suspend") === 0
+        || action.id.indexOf("org.freedesktop.login1.hibernate") === 0) {
+        /* Deliberately not the *-ignore-inhibit variants: if something has taken
+           an inhibitor lock, the user should be told, not overridden. */
+        if (action.id.indexOf("ignore-inhibit") !== -1) {
+            return polkit.Result.NOT_HANDLED;
+        }
+        return polkit.Result.YES;
+    }
+
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0) {
+        return polkit.Result.YES;
+    }
+
+    /* Mounting a USB stick from the file explorer. */
+    if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0
+        || action.id === "org.freedesktop.udisks2.eject-media") {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});
