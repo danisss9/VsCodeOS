@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free up disk space
         run: |
@@ -81,7 +81,10 @@ jobs:
           BUILD_VERSION: ${{ needs.version.outputs.version }}
           VSCODE_VERSION: ${{ github.event.inputs.vscode_version || 'latest' }}
         run: |
-          docker run --rm --privileged \
+          # --pull always: the runner may already hold an archlinux:latest layer
+          # from its image cache, and pacstrap installs from whatever package
+          # databases this container syncs - so a stale base means a stale ISO.
+          docker run --rm --privileged --pull always \
             -v "${PWD}:/build" \
             -v /mnt/vscodeos-work:/work \
             -w /build \
@@ -89,10 +92,15 @@ jobs:
             -e VSCODE_VERSION="${VSCODE_VERSION}" \
             archlinux:latest \
             bash -euo pipefail -c '
+              # The keyring goes first and on its own: a base image older than
+              # the current signing keys cannot verify the upgrade that follows.
               pacman -Sy --noconfirm --needed archlinux-keyring
-              # grub is only an optional dependency of archiso, but mkarchiso
-              # needs grub-mkstandalone to build the UEFI boot modes.
-              pacman -Su --noconfirm --needed archiso git grub
+              # A full upgrade, not just -S: mkarchiso pacstraps from the
+              # databases this container syncs, so refreshing them here is what
+              # puts current package versions into the image. grub is only an
+              # optional dependency of archiso, but mkarchiso needs
+              # grub-mkstandalone to build the UEFI boot modes.
+              pacman -Syu --noconfirm --needed archiso git grub
               git config --global --add safe.directory /build
               ./scripts/build-iso.sh -v "${ISO_VERSION}" -w /work -o /build/out
             '
@@ -107,6 +115,17 @@ jobs:
             for f in out/*.iso; do
               printf '| `%s` | %s | `%s` |\n' \
                 "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            # Arch is a rolling release, so what shipped is decided by the
+            # mirrors at build time - print it rather than leave it to trust.
+            for m in out/*.packages.txt; do
+              [ -e "$m" ] || continue
+              echo
+              echo "<details><summary>Shipped package versions ($(wc -l < "$m") packages)</summary>"
+              echo
+              ./scripts/pkg-versions.sh "$m" --markdown
+              echo
+              echo '</details>'
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -125,12 +144,13 @@ jobs:
             fi
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: VSCodeOS-${{ needs.version.outputs.version }}-x86_64
           path: |
             out/*.iso
             out/*.sha256
+            out/*.packages.txt
           retention-days: 14
           compression-level: 0
 
@@ -143,7 +163,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install image tooling
         run: |
@@ -169,14 +189,24 @@ jobs:
               printf '| `%s` | %s | `%s` |\n' \
                 "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$(sha256sum "$f" | cut -d' ' -f1)"
             done
+            for m in out/*.packages.txt; do
+              [ -e "$m" ] || continue
+              echo
+              echo "<details><summary>Shipped package versions ($(wc -l < "$m") packages)</summary>"
+              echo
+              ./scripts/pkg-versions.sh "$m" --markdown
+              echo
+              echo '</details>'
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: VSCodeOS-${{ needs.version.outputs.version }}-raspberrypi
           path: |
             out/*.img.xz
             out/*.sha256
+            out/*.packages.txt
           retention-days: 14
           compression-level: 0
 
@@ -187,7 +217,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -240,6 +270,13 @@ jobs:
 
           A 4 GB Pi 4 or a Pi 5 gives the best experience. Windows users: use
           Raspberry Pi Imager or [balenaEtcher](https://etcher.balena.io).
+
+          ## What is inside
+
+          Both images are pacstrapped from the current Arch Linux (and Arch
+          Linux ARM) repositories on the day they are built, so the package
+          versions move with every release. The \`.packages.txt\` file beside
+          each image lists exactly what that build shipped, name and version.
 
           ## Verifying a download
 
