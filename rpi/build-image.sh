@@ -446,6 +446,13 @@ done
 grep -q "${PARTUUID_PREFIX}-01" "${ROOT_MNT}/etc/fstab" ||
     die "fstab does not reference the boot partition PARTUUID ${PARTUUID_PREFIX}-01"
 
+# Without this rule Xorg can bind to the render-only v3d device, find no
+# outputs and exit - which on an auto-logged-in tty1 is an endless login loop.
+# The console still works in that state, so nothing else in this build would
+# catch it; check the file is there instead of finding out on the hardware.
+[[ -f "${ROOT_MNT}/etc/X11/xorg.conf.d/20-vscodeos-vc4.conf" ]] ||
+    die "the vc4 PrimaryGPU rule is missing from the image - the kiosk would not start"
+
 # The shared sudoers drop-in grants the live medium password-less sudo, which
 # the x86 installer replaces at install time. A flashed Pi image has no
 # installer, so apply the same tightening here.

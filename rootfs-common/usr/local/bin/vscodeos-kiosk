@@ -67,10 +67,19 @@ declare -a flags=(
 )
 
 # Machines without a render node (most VMs, some servers) hang or fall over on
-# GPU init, so ask Electron for software rendering there.
-if [[ ! -d /dev/dri ]]; then
-    log "no /dev/dri present - falling back to software rendering"
+# GPU init, so ask Electron for software rendering there. `-d /dev/dri` is not
+# enough: the directory exists on a Raspberry Pi even when the only thing in it
+# is a display node with no 3D behind it.
+software_rendering=0
+use_software_rendering() {
+    (( software_rendering )) && return 0
+    software_rendering=1
     flags+=("--disable-gpu" "--disable-gpu-compositing")
+}
+
+if ! compgen -G '/dev/dri/render*' >/dev/null && ! compgen -G '/dev/dri/card*' >/dev/null; then
+    log "no DRM device in /dev/dri - falling back to software rendering"
+    use_software_rendering
 fi
 
 # Word-split the admin-provided flags on purpose: /etc/default/vscodeos is a
@@ -81,8 +90,16 @@ if [[ -n "${VSCODEOS_CODE_FLAGS}" ]]; then
 fi
 
 if [[ ! -x "${CODE_BIN}" ]]; then
-    log "FATAL: ${CODE_BIN} is missing - dropping to a terminal"
-    exec xterm -fa Monospace -fs 12 -e "echo 'VS Code is not installed at ${CODE_BIN}'; bash"
+    log "FATAL: ${CODE_BIN} is missing"
+    if command -v xterm >/dev/null 2>&1; then
+        log "dropping to a terminal"
+        exec xterm -fa Monospace -fs 12 -e "echo 'VS Code is not installed at ${CODE_BIN}'; bash"
+    fi
+    # No terminal to fall back to either. Exiting ends the X session; the tty1
+    # bootstrap notices the quick failure and leaves a console with this log on
+    # screen, which beats respawning an empty X server forever.
+    log "xterm is not installed either - ending the session"
+    exit 1
 fi
 
 # --- supervisor loop --------------------------------------------------------
@@ -100,6 +117,7 @@ trap cleanup EXIT
 trap '' HUP INT QUIT
 
 backoff=1
+quick_exits=0
 while :; do
     log "launching VS Code: ${CODE_BIN} ${flags[*]} ${VSCODEOS_WORKSPACE}"
     start=${SECONDS}
@@ -120,10 +138,20 @@ while :; do
     # A crash loop (repeated exits within a few seconds) backs off instead of
     # spinning the CPU; a normal long-lived session restarts instantly.
     if (( ran < 5 )); then
+        (( quick_exits++ ))
+        # An editor that will not stay up is usually Electron falling over on
+        # GPU init - the Pi's v3d driver is a common way to get there. Retry
+        # without hardware acceleration before settling into the back-off: a
+        # slow desktop is worth more than a blank screen.
+        if (( quick_exits == 3 )) && (( ! software_rendering )); then
+            log "three quick exits - retrying with software rendering"
+            use_software_rendering
+        fi
         log "restarting in ${backoff}s"
         sleep "${backoff}"
         (( backoff < 30 )) && backoff=$(( backoff * 2 ))
     else
         backoff=1
+        quick_exits=0
     fi
 done
