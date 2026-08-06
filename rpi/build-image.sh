@@ -359,6 +359,15 @@ if (( ${#displaced[@]} )); then
     in_chroot "pacman -R --noconfirm ${displaced[*]}"
 fi
 
+# The base tarball is a snapshot, and its keyring is exactly as old. If Arch
+# Linux ARM has rotated or added a signing key since that snapshot was cut,
+# every package signed with the new key fails to verify and the upgrade below
+# aborts - which would leave the image on whatever the snapshot happened to
+# carry. Refreshing the keyring on its own first is what stops a stale base
+# from quietly turning into a stale image.
+msg "refreshing the package signing keys"
+in_chroot "pacman -Sy --noconfirm --needed archlinuxarm-keyring"
+
 msg "updating the base system"
 in_chroot "pacman -Syu --noconfirm"
 
@@ -393,6 +402,13 @@ done <<< "${unknown}"
 msg "installing the VS Code OS package set"
 in_chroot "pacman -S --noconfirm --needed ${packages[*]}"
 msg "image root filesystem: $(free_mb "${ROOT_MNT}") MiB free after the package set"
+
+# Nothing here pins a version - the image gets whatever the mirrors were
+# serving during this run - so record what actually went in, next to the image
+# it describes.
+readonly MANIFEST="${OUT_DIR}/VSCodeOS-${BUILD_VERSION}-aarch64-rpi.packages.txt"
+in_chroot "pacman -Q" | sort -u > "${MANIFEST}" ||
+    msg "warning: could not read the package database - no manifest written"
 
 # --------------------------------------------------------------------------
 # overlays
@@ -592,3 +608,7 @@ rm -f "${IMAGE}"
 msg "done"
 printf '    %s\n    %s compressed (from %s raw)\n' \
     "${target}" "$(du -h "${target}" | cut -f1)" "${raw_size}"
+if [[ -s "${MANIFEST}" ]]; then
+    printf '    %s package versions shipped\n' "$(wc -l < "${MANIFEST}")"
+    "${REPO_ROOT}/scripts/pkg-versions.sh" "${MANIFEST}"
+fi

@@ -46,6 +46,11 @@ sudo pacman -S go rust jdk-openjdk
 The Pi image is leaner still, because an SD card is small and a Pi has little
 RAM: it also leaves out Docker and git-lfs.
 
+Nothing is pinned to a version. Both images are assembled from the Arch Linux
+and Arch Linux ARM repositories as they stand on the day of the release, so
+each release is a current system rather than a frozen one. The `.packages.txt`
+file published next to each image lists exactly which versions it shipped.
+
 ### Supported Raspberry Pi models
 
 64-bit boards only: **Pi 5, Pi 4, Pi 400, CM4, Pi 3/3+ and Zero 2 W**. A 4 GB
@@ -184,9 +189,9 @@ release.
 20 GB of free disk space:
 
 ```bash
-docker run --rm --privileged -v "$PWD:/build" -w /build archlinux:latest \
+docker run --rm --privileged --pull always -v "$PWD:/build" -w /build archlinux:latest \
   bash -c 'pacman -Sy --noconfirm --needed archlinux-keyring &&
-           pacman -Su --noconfirm --needed archiso git grub &&
+           pacman -Syu --noconfirm --needed archiso git grub &&
            ./scripts/build-iso.sh -v 1.0.0'
 ```
 
@@ -210,7 +215,10 @@ docker run --privileged --rm tonistiigi/binfmt --install arm64
 sudo ./rpi/build-image.sh -v 1.0.0
 ```
 
-Both builds write to `out/`.
+Both builds write to `out/`, each alongside a `.sha256` checksum and a
+`.packages.txt` manifest listing every package version that went into that
+image. The build prints the headline versions — kernel, toolchain, graphics
+stack — when it finishes.
 
 ## How the repository is laid out
 
@@ -243,6 +251,7 @@ rpi/                                Raspberry Pi only
 scripts/
   build-iso.sh                      assembles the profile and runs mkarchiso
   fetch-vscode.sh                   downloads and stages VS Code (x64 or arm64)
+  pkg-versions.sh                   summarises a build's package manifest
 .github/workflows/build-iso.yml     tag -> both images -> one GitHub release
 ```
 
@@ -263,6 +272,14 @@ Details worth knowing if you are modifying it:
   disk identifier in `build-image.sh`. `cmdline.txt` and `fstab` hardcode the
   matching values, and the build asserts they agree — a mismatch would be a
   kernel panic on real hardware.
+- **Nothing pins a package version.** Both builds install from the repositories
+  as they stand at that moment, so a rebuild is a newer system. To keep that
+  honest, the x86 build container is pulled fresh and fully upgraded before
+  `pacstrap` reads its databases, and the Pi build refreshes
+  `archlinuxarm-keyring` before its own `pacman -Syu` — a base tarball too old
+  to verify the current signing keys would otherwise fail the upgrade and ship
+  the snapshot's packages instead. Each build then writes a
+  `.packages.txt` manifest recording what it actually installed.
 
 ## Default credentials
 

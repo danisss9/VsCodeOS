@@ -6,6 +6,10 @@
 *.img
 *.img.xz
 *.sha256
+*.packages.txt
+
+# pacman sync databases, dropped in the working tree by a build run from here
+*.db
 
 # Editor / OS noise
 .DS_Store

@@ -150,5 +150,50 @@ if [[ "${iso}" != "${target}" ]]; then mv -- "${iso}" "${target}"; fi
 
 ( cd "${OUT_DIR}" && sha256sum "${target##*/}" > "${target##*/}.sha256" )
 
+# --------------------------------------------------------------------------
+# package manifest
+# --------------------------------------------------------------------------
+
+# Nothing in the profile pins a version - pacstrap installs whatever the
+# mirrors were serving during this run - so the only record of what shipped is
+# the one written here, in the 'name version' form `pacman -Q` prints. The ISO
+# already went out above, so a manifest that cannot be produced is a missing
+# nicety rather than a failed build: none of this is allowed to be fatal.
+manifest="${OUT_DIR}/VSCodeOS-${BUILD_VERSION}-x86_64.packages.txt"
+rm -f "${manifest}"
+
+# The image's own package database is the authority on what it contains.
+pkgdb="$(find "${WORK_DIR}" -type d -path '*/airootfs/var/lib/pacman' -print -quit)"
+if [[ -n "${pkgdb}" ]]; then
+    pacman -Q --dbpath "${pkgdb}" 2>/dev/null | sort -u > "${manifest}" || true
+fi
+
+# Failing that, the list mkarchiso puts on the medium as /arch/pkglist.*.txt,
+# whose lines read 'repo/name-pkgver-pkgrel'. Neither a pkgver nor a pkgrel may
+# contain a hyphen, so the name is everything before the last two
+# dash-separated fields - which is the only way to split it, since plenty of
+# names (linux-firmware-intel) contain hyphens themselves.
+if [[ ! -s "${manifest}" ]]; then
+    pkglist="$(find "${WORK_DIR}" -type f -name 'pkglist.*.txt' -print -quit)"
+    if [[ -n "${pkglist}" ]]; then
+        sed 's|^[^/]*/||' "${pkglist}" | awk '
+            {
+                n = split($0, f, "-")
+                if (n < 3) { print $0; next }
+                version = f[n - 1] "-" f[n]
+                print substr($0, 1, length($0) - length(version) - 1), version
+            }' | sort -u > "${manifest}" || true
+    fi
+fi
+
+if [[ ! -s "${manifest}" ]]; then
+    rm -f "${manifest}"
+    msg "warning: no package database or list left in ${WORK_DIR} - no manifest written"
+fi
+
 msg "done"
 printf '    %s\n    %s\n' "${target}" "$(du -h "${target}" | cut -f1)"
+if [[ -s "${manifest}" ]]; then
+    printf '    %s package versions shipped\n' "$(wc -l < "${manifest}")"
+    "${REPO_ROOT}/scripts/pkg-versions.sh" "${manifest}"
+fi
