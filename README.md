@@ -30,13 +30,21 @@ Two images are published for every release, sharing the same kiosk:
 | **Base** | Arch Linux, built with `archiso` | Arch Linux ARM |
 | **Editor** | Official VS Code, `linux-x64` | Official VS Code, `linux-arm64` |
 | **Session** | Xorg + Openbox kiosk — no panel, no launcher, no desktop | same |
-| **Toolchain** | git, Node.js, Python, Go, Rust, JDK, base-devel, Docker | git, Node.js, Python, base-devel |
+| **Toolchain** | git, git-lfs, Node.js, Python, base-devel, Docker | git, Node.js, Python, base-devel |
 | **Boot** | UEFI (x64 and ia32) and legacy BIOS, one hybrid image | Pi firmware from a FAT partition |
 | **Getting it onto a machine** | live medium + `vscodeos-install` | flash the image; it *is* the system |
 
-The Pi image is deliberately leaner: an SD card is small, a Pi has little RAM,
-and the release asset has to stay under GitHub's 2 GiB limit. The heavy
-toolchains are one `pacman -S` away.
+Neither image ships Go, Rust or the JDK. They are the heaviest toolchains Arch
+packages — over a gigabyte of installed files between them — and both releases
+have to stay under GitHub's 2 GiB asset limit. Install whichever you need from
+the editor's terminal, once, on the installed system:
+
+```bash
+sudo pacman -S go rust jdk-openjdk
+```
+
+The Pi image is leaner still, because an SD card is small and a Pi has little
+RAM: it also leaves out Docker and git-lfs.
 
 ### Supported Raspberry Pi models
 

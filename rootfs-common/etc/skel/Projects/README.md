@@ -6,8 +6,9 @@ behind this window — the editor *is* the desktop.
 ## Getting started
 
 - **Terminal** — `` Ctrl+` `` opens an integrated terminal. It is a normal
-  Arch Linux shell with `sudo`, `pacman`, `git`, `node`, `python`, `go`,
-  `rustc` and `javac` already installed.
+  Arch Linux shell with `sudo`, `pacman`, `git`, `node`, `python` and a C
+  toolchain already installed. Bigger toolchains are left out to keep the
+  download small — `sudo pacman -S go rust jdk-openjdk` adds them.
 - **Your files** — this folder (`~/Projects`) is what VS Code opens on boot.
   Anything you put here is waiting for you next time.
 - **Extensions** — the Extensions view (`Ctrl+Shift+X`) works exactly as it
