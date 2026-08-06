@@ -2,7 +2,9 @@
 #
 # Deliberately leaner than the x86 image: an SD card is small, a Pi has little
 # RAM, and the release artifact has to stay under GitHub's 2 GiB asset limit.
-# Heavy toolchains (Rust, Go, JDK, Docker) are one `pacman -S` away instead.
+# Docker is left out here (the x86 image does ship it), and the heavy toolchains
+# - Go, Rust and the JDK - ship on neither image; `sudo pacman -S go rust
+# jdk-openjdk` pulls them in on either one.
 
 # Kernel and Raspberry Pi firmware
 linux-rpi

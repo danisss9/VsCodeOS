@@ -143,6 +143,14 @@ expat
 systemd-libs
 
 # Developer tooling that ships with the OS
+#
+# Go, Rust and the JDK are deliberately absent. They are the three heaviest
+# toolchains Arch offers - well over a gigabyte of installed files between them,
+# and machine code, which squashfs only compresses so far - and they were what
+# kept the ISO over GitHub's 2 GiB release-asset limit. Anyone who wants them is
+# one command away in the editor's terminal:
+#
+#     sudo pacman -S go rust jdk-openjdk
 git
 git-lfs
 base-devel
@@ -150,9 +158,6 @@ nodejs
 npm
 python
 python-pip
-go
-rust
-jdk-openjdk
 docker
 docker-compose
 man-db
