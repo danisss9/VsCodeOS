@@ -50,14 +50,49 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Building VS Code OS ${version}"
 
+  # The desktop shell is architecture-neutral JavaScript, so it is built once and
+  # both image jobs consume the same artifact. Building it inside each image job
+  # would mean two Node toolchains - pacman's in an Arch container, and
+  # setup-node's on an arm64 Ubuntu runner - producing the same bytes twice.
+  extension:
+    name: Build VsCodeOsCore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Typecheck
+        run: npm ci --prefix extension --no-audit --no-fund && npm run --prefix extension typecheck
+
+      - name: Build
+        run: ./scripts/build-extension.sh -o out/extension
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vscodeos-core-extension
+          path: out/extension
+          retention-days: 14
+
   x86_64:
     name: x86-64 ISO
-    needs: version
+    needs: [version, extension]
     if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["both","x86_64"]'), github.event.inputs.targets)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+
+      - name: Fetch the prebuilt extension
+        uses: actions/download-artifact@v8
+        with:
+          name: vscodeos-core-extension
+          path: extension-dist
 
       - name: Free up disk space
         run: |
@@ -90,6 +125,7 @@ jobs:
             -w /build \
             -e ISO_VERSION="${BUILD_VERSION}" \
             -e VSCODE_VERSION="${VSCODE_VERSION}" \
+            -e VSCODEOS_EXTENSION_PREBUILT=/build/extension-dist \
             archlinux:latest \
             bash -euo pipefail -c '
               # The keyring goes first and on its own: a base image older than
@@ -156,7 +192,7 @@ jobs:
 
   raspberrypi:
     name: Raspberry Pi image
-    needs: version
+    needs: [version, extension]
     if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["both","raspberrypi"]'), github.event.inputs.targets)
     # A native aarch64 runner means the build can chroot into the image
     # directly instead of emulating every command through qemu.
@@ -164,6 +200,12 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+
+      - name: Fetch the prebuilt extension
+        uses: actions/download-artifact@v8
+        with:
+          name: vscodeos-core-extension
+          path: extension-dist
 
       - name: Install image tooling
         run: |
@@ -176,6 +218,7 @@ jobs:
         env:
           BUILD_VERSION: ${{ needs.version.outputs.version }}
           VSCODE_VERSION: ${{ github.event.inputs.vscode_version || 'latest' }}
+          VSCODEOS_EXTENSION_PREBUILT: ${{ github.workspace }}/extension-dist
         run: sudo -E ./rpi/build-image.sh -v "${BUILD_VERSION}" -o "${PWD}/out" -w /mnt/vscodeos-rpi
 
       - name: Summarise
@@ -219,6 +262,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          # Images only. Without the filter the extension bundle would be
+          # downloaded too, and `gh release create artifacts/*` below would
+          # publish it as a release asset.
+          pattern: VSCodeOS-*
           path: artifacts
           merge-multiple: true
 

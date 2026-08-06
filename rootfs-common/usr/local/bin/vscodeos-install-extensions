@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Install the VS Code OS extensions into the editor.
+#
+# Extensions ship in /usr/share/vscodeos/extensions and are copied from there
+# into VS Code's *built-in* extensions folder:
+#
+#     /opt/visual-studio-code/resources/app/extensions/<name>
+#
+# That directory is a plain scan - no extensions.json, no marketplace metadata,
+# no version check - so a copy is all it takes, and a VS Code update can never
+# decide the desktop shell is "incompatible" and disable it. The trade is that
+# the update replaces the whole app tree, which is why this script exists and
+# why vscodeos-update-code calls it afterwards.
+#
+# Usage: vscodeos-install-extensions [--root <rootfs>] [--force]
+#
+#   --root   operate on an image being assembled rather than on this machine
+#   --force  reinstall even when the installed version already matches
+
+set -Eeuo pipefail
+
+ROOT=""
+FORCE=0
+
+msg() { printf '==> %s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+while (( $# )); do
+    case "$1" in
+        --root)   ROOT="${2%/}"; shift 2 ;;
+        --force)  FORCE=1; shift ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        *) die "unknown argument: $1" ;;
+    esac
+done
+
+readonly SRC="${ROOT}/usr/share/vscodeos/extensions"
+readonly DST="${ROOT}/opt/visual-studio-code/resources/app/extensions"
+
+if [[ ! -d "${SRC}" ]]; then
+    msg "no extensions staged in ${SRC} - nothing to install"
+    exit 0
+fi
+if [[ ! -d "${DST}" ]]; then
+    msg "Visual Studio Code is not installed at ${ROOT}/opt/visual-studio-code - skipping"
+    exit 0
+fi
+
+installed=0
+for source in "${SRC}"/*/; do
+    [[ -d "${source}" ]] || continue
+    name="$(basename "${source}")"
+    [[ -f "${source}/package.json" ]] || { msg "skipping ${name}: no package.json"; continue; }
+
+    # Cheaper and more portable than pulling in a JSON parser for one field.
+    version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${source}/package.json" | head -1)"
+    version="${version:-unknown}"
+
+    target="${DST}/${name}"
+    stamp="${target}/.vscodeos-stamp"
+
+    if (( ! FORCE )) && [[ -f "${stamp}" ]] && [[ "$(cat "${stamp}")" == "${version}" ]]; then
+        msg "${name} ${version} is already installed"
+        continue
+    fi
+
+    rm -rf "${target}"
+    cp -aT "${source}" "${target}"
+    printf '%s\n' "${version}" > "${stamp}"
+    chown -R 0:0 "${target}" 2>/dev/null || true
+    find "${target}" -type d -exec chmod 0755 {} +
+    find "${target}" -type f -exec chmod 0644 {} +
+    msg "installed ${name} ${version}"
+    installed=$(( installed + 1 ))
+done
+
+# VS Code caches its scan of the built-in extensions folder and invalidates that
+# cache on the folder's mtime. cp already bumps it; make it explicit so an
+# in-place edit during development is picked up too.
+touch "${DST}"
+
+if (( installed == 0 )); then
+    msg "nothing to do"
+fi

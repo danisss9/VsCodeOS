@@ -58,6 +58,23 @@ openssh
 wget
 curl
 ca-certificates
+# The quick-settings Bluetooth tile hides itself when there is no adapter, but
+# without bluez there is no bluetoothctl to ask in the first place.
+bluez
+bluez-utils
+
+# Web browser.
+#
+# Chromium rather than Microsoft Edge: Edge is AUR-only on Arch, so neither
+# build's `pacman -S` flow can install it, and Microsoft publishes no ARM64
+# Linux build at all - the Pi image could never have matched. VsCodeOsCore
+# prefers microsoft-edge-stable at run time, so installing it from the AUR is
+# enough to make every launcher in the shell use it instead.
+#
+# This is the single largest thing on this list after the kernel and VS Code
+# itself (~600 MiB installed, ~180 MiB once squashfs has had it), so it is the
+# first candidate to drop if the ISO ever creeps back over the 2 GiB limit.
+chromium
 
 # Filesystems / storage helpers
 gvfs
@@ -89,6 +106,9 @@ vulkan-radeon
 vulkan-swrast
 xdg-utils
 xdg-user-dirs
+# Screen capture for the shell's screenshot tool. Nothing inside a VS Code
+# webview can read the screen, so this has to be a real X client.
+scrot
 
 # Fonts
 ttf-dejavu
@@ -105,6 +125,10 @@ pipewire-alsa
 pipewire-pulse
 wireplumber
 alsa-utils
+# MPRIS transport control for the shell's music player. Chromium exports MPRIS
+# for whatever is playing in it, which is how Spotify Web and YouTube Music end
+# up controllable from the status bar.
+playerctl
 
 # Input / laptop bits
 libinput

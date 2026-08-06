@@ -55,5 +55,13 @@ chown -R root:root "${PREFIX}"
 [[ -f "${PREFIX}/chrome-sandbox" ]] && chmod 4755 "${PREFIX}/chrome-sandbox"
 rm -rf "${PREFIX}.old"
 
+# The new tree is Microsoft's, so the VS Code OS desktop shell that lived in
+# resources/app/extensions went out with the old one. Put it back, or the
+# machine reboots into an editor with no tray, no clock and no way to shut down.
+if [[ -x /usr/local/bin/vscodeos-install-extensions ]]; then
+    echo "==> reinstalling the VS Code OS extensions"
+    /usr/local/bin/vscodeos-install-extensions --force
+fi
+
 echo "==> VS Code updated: ${current} -> ${new}"
 echo "    reboot, or run 'pkill -f ${PREFIX}/code' to restart the editor."

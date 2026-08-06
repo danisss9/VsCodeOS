@@ -5,6 +5,11 @@
   "workbench.startupEditor": "readme",
   "workbench.tips.enabled": false,
 
+  // The notifications bell registers itself at the far right of the status bar
+  // at a priority no extension can outrank, so moving notifications to the top
+  // right is what frees the bottom-right corner for the shell's power button.
+  "workbench.notifications.position": "top-right",
+
   "window.titleBarStyle": "native",
   "window.menuBarVisibility": "hidden",
   "window.restoreWindows": "all",
@@ -35,5 +40,16 @@
 
   "git.autofetch": true,
   "git.confirmSync": false,
-  "telemetry.feedback.enabled": false
+  "telemetry.feedback.enabled": false,
+
+  // The desktop shell. Every feature can be turned off individually; the
+  // extension itself is built in and cannot be uninstalled.
+  "vscodeos.statusBar.enabled": true,
+  "vscodeos.clock.timeFormat": "HH:mm",
+  "vscodeos.clock.dateFormat": "dd/MM/yyyy",
+  "vscodeos.taskManager.enabled": true,
+  "vscodeos.files.enabled": true,
+  "vscodeos.music.enabled": true,
+  "vscodeos.apps.enabled": true,
+  "vscodeos.power.confirm": true
 }

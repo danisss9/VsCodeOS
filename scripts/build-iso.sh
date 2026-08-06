@@ -100,6 +100,29 @@ find "${PROFILE}"/{syslinux,grub,efiboot} -type f \( -name '*.cfg' -o -name '*.c
 msg "staging Visual Studio Code"
 "${REPO_ROOT}/scripts/fetch-vscode.sh" "${PROFILE}/airootfs" "${VSCODE_VERSION:-latest}" x64
 
+# --------------------------------------------------------------------------
+# stage the VS Code OS desktop shell
+# --------------------------------------------------------------------------
+
+# Architecture-neutral JavaScript, so CI builds it once and hands both image
+# jobs the same tree through VSCODEOS_EXTENSION_PREBUILT.
+msg "staging the VS Code OS extensions"
+"${REPO_ROOT}/scripts/build-extension.sh" -o "${WORK_DIR}/extension"
+
+if [[ -d "${WORK_DIR}/extension" ]]; then
+    install -d -m 0755 "${PROFILE}/airootfs/usr/share/vscodeos/extensions"
+    cp -aT "${WORK_DIR}/extension" "${PROFILE}/airootfs/usr/share/vscodeos/extensions"
+    # The build runs as an ordinary user in CI; nothing may enter the image owned
+    # by that uid, and profiledef.sh's file_permissions only covers listed paths.
+    chown -R 0:0 "${PROFILE}/airootfs/usr/share/vscodeos"
+    find "${PROFILE}/airootfs/usr/share/vscodeos" -type d -exec chmod 0755 {} +
+    find "${PROFILE}/airootfs/usr/share/vscodeos" -type f -exec chmod 0644 {} +
+
+    # Into VS Code's built-in extensions folder, using the same script the
+    # installed system runs after every editor update.
+    "${PROFILE}/airootfs/usr/local/bin/vscodeos-install-extensions" --root "${PROFILE}/airootfs"
+fi
+
 # The live user's home is /etc/skel, materialised: mkarchiso does not run
 # useradd, so the account's dotfiles have to exist in the image already.
 msg "materialising /home/vscodeos from /etc/skel"

@@ -1,0 +1,989 @@
+/* VS Code OS shell styling.
+ *
+ * Every colour comes from a --vscode-* variable, so the shell follows whatever
+ * theme the user picks instead of shipping its own palette. The flyouts are laid
+ * out as a card pinned to the bottom-right of the panel, so they read as rising
+ * out of the tray item that opened them. */
+
+:root {
+    --vscodeos-radius: 8px;
+    --vscodeos-gap: 8px;
+    --vscodeos-card-bg: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    --vscodeos-card-border: var(--vscode-widget-border, var(--vscode-editorWidget-border, transparent));
+    --vscodeos-tile-bg: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.14));
+    --vscodeos-tile-fg: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    --vscodeos-accent: var(--vscode-button-background, #0078d4);
+    --vscodeos-accent-fg: var(--vscode-button-foreground, #ffffff);
+    --vscodeos-muted: var(--vscode-descriptionForeground);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body.vscodeos {
+    margin: 0;
+    padding: 0;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size, 13px);
+    color: var(--vscode-foreground);
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+}
+
+.icon {
+    flex: 0 0 auto;
+    vertical-align: middle;
+}
+
+button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+button:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='search'],
+textarea,
+select {
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+/* ---------------------------------------------------------------- flyouts */
+
+.flyout-host {
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    min-height: 100%;
+    padding: 10px 14px;
+}
+
+.flyout {
+    width: min(400px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 14px;
+    border-radius: var(--vscodeos-radius);
+    border: 1px solid var(--vscodeos-card-border);
+    background: var(--vscodeos-card-bg);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.34);
+    animation: flyout-in 130ms ease-out;
+}
+
+.flyout.wide {
+    width: min(560px, 100%);
+}
+
+@keyframes flyout-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flyout { animation: none; }
+}
+
+.flyout-title {
+    font-size: 1.05em;
+    font-weight: 600;
+    margin: 0 0 10px;
+}
+
+.flyout-note {
+    color: var(--vscodeos-muted);
+    font-size: 0.92em;
+    margin: 8px 2px 0;
+}
+
+/* Quick-settings grid, three across, exactly like the Windows tray. */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--vscodeos-gap);
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 74px;
+    padding: 10px;
+    border-radius: 6px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    text-align: left;
+    transition: background 80ms ease;
+}
+
+.tile:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.tile.on {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.tile.on:hover {
+    background: var(--vscode-button-hoverBackground, var(--vscodeos-accent));
+}
+
+.tile-label {
+    font-size: 0.86em;
+    line-height: 1.25;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.tile-sub {
+    opacity: 0.75;
+    font-size: 0.94em;
+}
+
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.slider-row .icon {
+    opacity: 0.85;
+}
+
+.slider-value {
+    min-width: 3.2em;
+    text-align: right;
+    color: var(--vscodeos-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+input[type='range'] {
+    flex: 1;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.4));
+    cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--vscodeos-accent);
+    border: 2px solid var(--vscodeos-card-bg);
+}
+
+/* Power flyout */
+.power-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--vscodeos-gap);
+}
+
+.power-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 18px 10px;
+    border-radius: 6px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    font-size: 0.95em;
+}
+
+.power-button:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.power-button.danger:hover {
+    background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+}
+
+/* Calendar */
+.calendar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.calendar-title {
+    font-weight: 600;
+}
+
+.calendar-nav {
+    display: flex;
+    gap: 2px;
+}
+
+.calendar-nav button,
+.icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    color: var(--vscode-foreground);
+}
+
+.calendar-nav button:hover,
+.icon-button:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.calendar-grid .dow {
+    text-align: center;
+    font-size: 0.82em;
+    color: var(--vscodeos-muted);
+    padding: 4px 0;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.92em;
+    font-variant-numeric: tabular-nums;
+}
+
+.calendar-day:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+.calendar-day.other-month {
+    color: var(--vscodeos-muted);
+    opacity: 0.55;
+}
+
+.calendar-day.today {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+    font-weight: 600;
+}
+
+.calendar-clock {
+    text-align: center;
+    font-size: 1.9em;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 2px;
+}
+
+.calendar-date {
+    text-align: center;
+    color: var(--vscodeos-muted);
+    margin-bottom: 12px;
+}
+
+/* Lists (networks, bluetooth devices, sinks, recordings) */
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+}
+
+.list-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 5px;
+    text-align: left;
+}
+
+.list-row:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.list-row.active {
+    background: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.list-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.list-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.list-sub {
+    font-size: 0.85em;
+    color: var(--vscodeos-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.list-row.active .list-sub {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.empty {
+    padding: 18px 4px;
+    text-align: center;
+    color: var(--vscodeos-muted);
+}
+
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 14px 2px 4px;
+    font-size: 0.82em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--vscodeos-muted);
+}
+
+/* Now playing */
+.now-playing {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.album-art {
+    width: 62px;
+    height: 62px;
+    border-radius: 5px;
+    object-fit: cover;
+    background: var(--vscodeos-tile-bg);
+    flex: 0 0 auto;
+}
+
+.transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 8px 0 4px;
+}
+
+.transport button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: var(--vscode-foreground);
+}
+
+.transport button:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+.transport .primary {
+    width: 42px;
+    height: 42px;
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82em;
+    color: var(--vscodeos-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------- app chrome */
+
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, transparent);
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+
+.toolbar .spacer {
+    flex: 1;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    white-space: nowrap;
+}
+
+.button:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.button.primary {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.button.primary:hover {
+    background: var(--vscode-button-hoverBackground, var(--vscodeos-accent));
+}
+
+.button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.status {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    border-top: 1px solid var(--vscode-panel-border, transparent);
+    color: var(--vscodeos-muted);
+    font-size: 0.88em;
+    display: flex;
+    gap: 14px;
+}
+
+.error-banner {
+    margin: 8px 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+    border: 1px solid var(--vscode-inputValidation-errorBorder, transparent);
+}
+
+/* ------------------------------------------------------- task manager */
+
+.meters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    padding: 10px;
+}
+
+.meter {
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--vscodeos-tile-bg);
+}
+
+.meter-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.meter-value {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.meter-sub {
+    font-size: 0.85em;
+    color: var(--vscodeos-muted);
+    margin-top: 6px;
+}
+
+.bar {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.3));
+    overflow: hidden;
+}
+
+.bar > span {
+    display: block;
+    height: 100%;
+    background: var(--vscodeos-accent);
+    transition: width 200ms linear;
+}
+
+.bar.warn > span {
+    background: var(--vscode-charts-red, #f14c4c);
+}
+
+.cores {
+    display: flex;
+    gap: 3px;
+    margin-top: 8px;
+    height: 26px;
+    align-items: flex-end;
+}
+
+.cores > span {
+    flex: 1;
+    background: var(--vscodeos-accent);
+    border-radius: 1px 1px 0 0;
+    min-height: 2px;
+    transition: height 200ms linear;
+}
+
+table.processes {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92em;
+}
+
+table.processes th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    text-align: left;
+    font-weight: 600;
+    padding: 6px 10px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.3));
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+table.processes th:hover {
+    color: var(--vscode-textLink-foreground);
+}
+
+table.processes td {
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.12));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 320px;
+}
+
+table.processes tbody tr:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+table.processes tbody tr.selected {
+    background: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.hot {
+    color: var(--vscode-charts-red, #f14c4c);
+    font-weight: 600;
+}
+
+/* ------------------------------------------------------ file explorer */
+
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.crumb {
+    padding: 3px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.crumb:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+.explorer {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+
+.places {
+    flex: 0 0 190px;
+    overflow-y: auto;
+    padding: 8px;
+    border-right: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.files {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.files.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 4px;
+    align-content: start;
+}
+
+.file-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 6px;
+    border-radius: 5px;
+    text-align: center;
+}
+
+.file-tile .name {
+    font-size: 0.85em;
+    line-height: 1.25;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.file-tile:hover,
+.file-row:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.file-tile.selected,
+.file-row.selected {
+    background: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.file-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: 4px;
+}
+
+.file-row .name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-row .size,
+.file-row .date {
+    color: var(--vscodeos-muted);
+    font-size: 0.86em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.file-row .size {
+    width: 78px;
+    text-align: right;
+}
+
+.file-row .date {
+    width: 150px;
+    text-align: right;
+}
+
+.folder-icon {
+    color: var(--vscode-charts-blue, #75beff);
+}
+
+/* --------------------------------------------------------- calculator */
+
+.calc {
+    max-width: 340px;
+    margin: 0 auto;
+    padding: 14px;
+}
+
+.calc-display {
+    padding: 14px 12px;
+    border-radius: 6px;
+    background: var(--vscodeos-tile-bg);
+    text-align: right;
+    margin-bottom: 12px;
+}
+
+.calc-expression {
+    min-height: 1.3em;
+    color: var(--vscodeos-muted);
+    font-size: 0.92em;
+    word-break: break-all;
+}
+
+.calc-result {
+    font-size: 2.1em;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+}
+
+.calc-keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.calc-keys.scientific {
+    grid-template-columns: repeat(5, 1fr);
+}
+
+.key {
+    padding: 14px 0;
+    border-radius: 5px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    font-size: 1.05em;
+}
+
+.key:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.key.op {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.16));
+}
+
+.key.equals {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.key.span-2 {
+    grid-column: span 2;
+}
+
+.calc-history {
+    margin-top: 14px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-size: 0.9em;
+}
+
+.calc-history div {
+    padding: 4px 2px;
+    color: var(--vscodeos-muted);
+    text-align: right;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.12));
+}
+
+/* -------------------------------------------------------------- paint */
+
+.paint-wrap {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+
+.paint-tools {
+    flex: 0 0 62px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    border-right: 1px solid var(--vscode-panel-border, transparent);
+    overflow-y: auto;
+}
+
+.tool {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    border-radius: 5px;
+    background: var(--vscodeos-tile-bg);
+}
+
+.tool:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.tool.active {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.canvas-area {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--vscode-editor-background);
+}
+
+#canvas {
+    background: #ffffff;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.3);
+    cursor: crosshair;
+    touch-action: none;
+    max-width: 100%;
+}
+
+.swatches {
+    display: grid;
+    grid-template-columns: repeat(8, 18px);
+    gap: 3px;
+}
+
+.swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    border: 1px solid rgba(127, 127, 127, 0.4);
+    padding: 0;
+}
+
+.swatch.active {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+/* ------------------------------------------------ notepad / screenshot */
+
+#notepad-text {
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    resize: none;
+    padding: 12px 14px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size, 14px);
+    line-height: 1.5;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+}
+
+#notepad-text:focus {
+    outline: none;
+}
+
+.shot-preview,
+.paint-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    min-height: 0;
+}
+
+.shot-preview img {
+    max-width: 100%;
+    max-height: 68vh;
+    border-radius: 4px;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.3);
+}
+
+.field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.field label {
+    color: var(--vscodeos-muted);
+    font-size: 0.9em;
+}
+
+/* ----------------------------------------------------------- recorder */
+
+.record-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 28px 16px 18px;
+}
+
+.record-button {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--vscode-charts-red, #f14c4c);
+    color: #ffffff;
+}
+
+.record-button.recording {
+    animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(241, 76, 76, 0.5); }
+    50% { box-shadow: 0 0 0 14px rgba(241, 76, 76, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .record-button.recording { animation: none; }
+}
+
+.record-time {
+    font-size: 2em;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+}
+
+audio {
+    width: 100%;
+}

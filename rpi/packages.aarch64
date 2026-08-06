@@ -29,6 +29,14 @@ openssh
 wget
 curl
 ca-certificates
+bluez
+bluez-utils
+
+# Web browser for the desktop shell's browser launcher and its music player.
+# Microsoft publishes no ARM64 Linux build of Edge, so Chromium is the only
+# option here - and shipping the same browser on both images keeps the shell's
+# behaviour identical across them.
+chromium
 
 # Storage helpers
 dosfstools
@@ -58,6 +66,8 @@ openbox
 mesa
 xdg-utils
 xdg-user-dirs
+# Screen capture for the shell's screenshot tool.
+scrot
 
 # Fonts
 ttf-dejavu
@@ -72,6 +82,8 @@ pipewire-alsa
 pipewire-pulse
 wireplumber
 alsa-utils
+# MPRIS transport control for the shell's music player.
+playerctl
 
 # Input
 libinput

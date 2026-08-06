@@ -25,6 +25,7 @@ file_permissions=(
   ["/usr/local/bin/vscodeos-install"]="0:0:755"
   ["/usr/local/bin/vscodeos-kiosk"]="0:0:755"
   ["/usr/local/bin/vscodeos-update-code"]="0:0:755"
+  ["/usr/local/bin/vscodeos-install-extensions"]="0:0:755"
   ["/usr/local/bin/code"]="0:0:755"
   ["/etc/sudoers.d/vscodeos"]="0:0:0440"
 )

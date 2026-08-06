@@ -1,0 +1,294 @@
+{
+  "name": "vscodeos-core",
+  "displayName": "VS Code OS Core",
+  "description": "The VS Code OS desktop shell: tray, power menu, clock, task manager, file explorer and mini-apps.",
+  "version": "1.0.0",
+  "publisher": "vscodeos",
+  "license": "MIT",
+  "private": true,
+  "homepage": "https://github.com/danisss9/VsCodeOS",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danisss9/VsCodeOS.git",
+    "directory": "extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vscodeos-system",
+          "title": "System",
+          "icon": "media/icons/system.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "vscodeos-flyout",
+          "title": "VS Code OS",
+          "icon": "media/icons/system.svg"
+        }
+      ]
+    },
+    "views": {
+      "vscodeos-system": [
+        {
+          "type": "webview",
+          "id": "vscodeos.taskManager",
+          "name": "Task Manager",
+          "icon": "media/icons/system.svg",
+          "when": "config.vscodeos.taskManager.enabled"
+        }
+      ],
+      "vscodeos-flyout": [
+        {
+          "type": "webview",
+          "id": "vscodeos.flyout",
+          "name": "System"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "vscodeos.power.menu",
+        "title": "Power…",
+        "category": "VS Code OS",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "vscodeos.power.shutdown",
+        "title": "Shut Down",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.power.restart",
+        "title": "Restart",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.power.sleep",
+        "title": "Sleep",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.power.logout",
+        "title": "Log Out",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.calendar.show",
+        "title": "Show Calendar",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.quickSettings.show",
+        "title": "Show Quick Settings",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.volume.show",
+        "title": "Show Volume Mixer",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.volume.up",
+        "title": "Volume Up",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.volume.down",
+        "title": "Volume Down",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.volume.toggleMute",
+        "title": "Toggle Mute",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.network.show",
+        "title": "Show Networks",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.music.show",
+        "title": "Show Music Player",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.music.playPause",
+        "title": "Play / Pause",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.music.next",
+        "title": "Next Track",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.music.previous",
+        "title": "Previous Track",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.files.open",
+        "title": "File Explorer",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.browser.open",
+        "title": "Web Browser",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.calculator",
+        "title": "Calculator",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.notepad",
+        "title": "Notepad",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.paint",
+        "title": "Paint",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.screenshot",
+        "title": "Screenshot",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.recorder",
+        "title": "Voice Recorder",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.menu",
+        "title": "All Apps…",
+        "category": "VS Code OS"
+      }
+    ],
+    "configuration": {
+      "title": "VS Code OS",
+      "properties": {
+        "vscodeos.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the VS Code OS tray block (power, clock, battery, volume, network) in the status bar."
+        },
+        "vscodeos.clock.timeFormat": {
+          "type": "string",
+          "default": "HH:mm",
+          "description": "Clock format. Tokens: HH, H, hh, h, mm, ss, A, a."
+        },
+        "vscodeos.clock.dateFormat": {
+          "type": "string",
+          "default": "dd/MM/yyyy",
+          "description": "Date shown next to the clock. Tokens: dd, d, MM, M, MMM, yyyy, yy. Leave empty to hide the date."
+        },
+        "vscodeos.taskManager.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Task Manager view in the activity bar."
+        },
+        "vscodeos.taskManager.refreshInterval": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "maximum": 30000,
+          "description": "Milliseconds between Task Manager samples."
+        },
+        "vscodeos.files.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the graphical file explorer."
+        },
+        "vscodeos.music.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the music player and its status bar transport."
+        },
+        "vscodeos.browser.command": {
+          "type": "string",
+          "default": "",
+          "description": "Browser to launch. Empty means: prefer microsoft-edge-stable, then chromium, then firefox."
+        },
+        "vscodeos.browser.homepage": {
+          "type": "string",
+          "default": "https://duckduckgo.com",
+          "description": "Page the browser opens when no URL is given."
+        },
+        "vscodeos.apps.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the built-in mini-apps (calculator, notepad, paint, screenshot, recorder)."
+        },
+        "vscodeos.power.confirm": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before shutting down or restarting."
+        },
+        "vscodeos.screenshot.directory": {
+          "type": "string",
+          "default": "~/Pictures/Screenshots",
+          "description": "Where the screenshot tool saves images."
+        },
+        "vscodeos.recorder.directory": {
+          "type": "string",
+          "default": "~/Music/Recordings",
+          "description": "Where the voice recorder saves audio."
+        },
+        "vscodeos.notepad.directory": {
+          "type": "string",
+          "default": "~/Documents",
+          "description": "Where Notepad saves new notes."
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "vscodeos.calendar.show",
+          "when": "config.vscodeos.statusBar.enabled"
+        },
+        {
+          "command": "vscodeos.quickSettings.show",
+          "when": "config.vscodeos.statusBar.enabled"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "node esbuild.mjs --production",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -501,6 +501,21 @@ require_image_space 800 "unpacking Visual Studio Code"
 "${REPO_ROOT}/scripts/fetch-vscode.sh" "${ROOT_MNT}" "${VSCODE_VERSION:-latest}" arm64
 msg "image root filesystem: $(free_mb "${ROOT_MNT}") MiB free after VS Code"
 
+msg "staging the VS Code OS extensions"
+# Run on the host rather than in_chroot: it is architecture-neutral JavaScript
+# plus coreutils, so this works the same whether the build is native or emulated.
+"${REPO_ROOT}/scripts/build-extension.sh" -o "${WORK_DIR}/extension"
+
+if [[ -d "${WORK_DIR}/extension" ]]; then
+    require_image_space 32 "installing the VS Code OS extensions"
+    install -d -m 0755 "${ROOT_MNT}/usr/share/vscodeos/extensions"
+    cp -aT "${WORK_DIR}/extension" "${ROOT_MNT}/usr/share/vscodeos/extensions"
+    chown -R 0:0 "${ROOT_MNT}/usr/share/vscodeos"
+    find "${ROOT_MNT}/usr/share/vscodeos" -type d -exec chmod 0755 {} +
+    find "${ROOT_MNT}/usr/share/vscodeos" -type f -exec chmod 0644 {} +
+    "${ROOT_MNT}/usr/local/bin/vscodeos-install-extensions" --root "${ROOT_MNT}"
+fi
+
 msg "finalising /home/vscodeos"
 in_chroot "chown -R vscodeos:vscodeos /home/vscodeos"
 
