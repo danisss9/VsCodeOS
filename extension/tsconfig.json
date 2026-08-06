@@ -15,5 +15,5 @@
     "sourceMap": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "media/src/**/*.ts"]
+  "include": ["src/**/*.ts", "media/src/**/*.ts", "test/**/*.ts"]
 }

@@ -37,9 +37,18 @@ bar item when the binary they need is missing, so a machine without `nmcli` or
 `wpctl` just shows fewer tray items rather than erroring.
 
 ```bash
-npm run typecheck  # tsc --noEmit, also run in CI
+npm run typecheck  # tsc --noEmit
+npm test           # node:test, no framework to install
 npm run package    # production bundles
 ```
+
+CI runs all three before either image build starts. The tests cover the two
+self-contained modules — the calculator's expression evaluator and the
+formatters — because everything else here talks to `/proc`, `nmcli` or the
+VS Code API and is verified by running the thing. That is a narrow surface, but
+it is the surface where a mistake is invisible: unary minus alone accounted for
+three real bugs (`5 − −3`, `2 × −3`, and the `±` key emitting an ASCII hyphen
+the tokenizer did not handle).
 
 ## Layout
 

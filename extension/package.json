@@ -283,7 +283,8 @@
     "watch": "node esbuild.mjs --watch",
     "package": "node esbuild.mjs --production",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "esbuild test/index.test.ts --bundle --platform=node --format=cjs --outfile=out/test.cjs --log-level=error && node --test out/test.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

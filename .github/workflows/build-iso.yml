@@ -67,8 +67,14 @@ jobs:
           cache: npm
           cache-dependency-path: extension/package-lock.json
 
+      - name: Install
+        run: npm ci --prefix extension --no-audit --no-fund
+
       - name: Typecheck
-        run: npm ci --prefix extension --no-audit --no-fund && npm run --prefix extension typecheck
+        run: npm run --prefix extension typecheck
+
+      - name: Test
+        run: npm run --prefix extension test
 
       - name: Build
         run: ./scripts/build-extension.sh -o out/extension
