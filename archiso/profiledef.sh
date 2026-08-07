@@ -26,10 +26,12 @@ file_permissions=(
   ["/usr/local/bin/vscodeos-kiosk"]="0:0:755"
   ["/usr/local/bin/vscodeos-update-code"]="0:0:755"
   ["/usr/local/bin/vscodeos-install-extensions"]="0:0:755"
-  # This one is load-bearing for security, not just for tidiness: polkit grants
-  # `pkexec /usr/local/bin/vscodeos-update` without a password, so a copy the
-  # kiosk user could write to would be a one-line path to root.
+  # These three are load-bearing for security, not just for tidiness: polkit
+  # grants `pkexec` on each of them without a password, so a copy the kiosk user
+  # could write to would be a one-line path to root.
   ["/usr/local/bin/vscodeos-update"]="0:0:755"
+  ["/usr/local/bin/vscodeos-clean"]="0:0:755"
+  ["/usr/local/bin/vscodeos-firewall"]="0:0:755"
   ["/usr/local/bin/vscodeos-screenshot"]="0:0:755"
   ["/usr/local/bin/code"]="0:0:755"
   ["/etc/sudoers.d/vscodeos"]="0:0:0440"
