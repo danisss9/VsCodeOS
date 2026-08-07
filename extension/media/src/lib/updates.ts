@@ -1,16 +1,23 @@
-// Updater.
+// The Updates pane of System Settings.
 //
 // Four rows and a log. The log is the important half: `pacman -Syu` can take
 // minutes and can fail in ways only its own output explains, so it is streamed
 // verbatim rather than hidden behind a spinner.
+//
+// This lives under lib/ rather than being its own page, because esbuild treats
+// every .ts directly in media/src as an entry point and this is now part of the
+// settings bundle. Its state is module-level and survives switching to another
+// settings pane and back, which is what keeps a running update's log intact.
 
-import { clear, h, onMessage, post, root } from './lib/dom';
-import { icon } from './lib/icons';
-import type { HostMessage, UpdateItem, UpdateTarget } from '../../src/webview/protocol';
+import { clear, h, post } from './dom';
+import { icon } from './icons';
+import type { HostMessage, UpdateItem, UpdateTarget } from '../../../src/webview/protocol';
 
 let items: UpdateItem[] = [];
 let running: UpdateTarget | undefined;
 let restartNeeded = false;
+/** Set once the pane has been opened, so the host is only asked to check once. */
+let checked = false;
 
 const rowsEl = h('div', { class: 'update-rows' });
 const logEl = h('pre', { class: 'update-log', hidden: true });
@@ -26,18 +33,6 @@ const allButton = h('button', {
     on: { click: () => post({ type: 'runUpdate', target: 'all' }) },
 }, h('span', { html: icon('update', 15) }), 'Update everything');
 
-clear(root()).append(h('div', { class: 'app' },
-    h('div', { class: 'toolbar' },
-        h('span', { html: icon('update', 16) }),
-        h('span', {}, 'Updater'),
-        h('span', { class: 'spacer' }),
-        checkButton,
-        allButton,
-    ),
-    banner,
-    h('div', { class: 'body' }, rowsEl, logEl),
-));
-
 function statusLabel(item: UpdateItem): { text: string; className: string } {
     switch (item.status) {
         case 'checking': return { text: 'Checking…', className: 'update-badge' };
@@ -47,7 +42,7 @@ function statusLabel(item: UpdateItem): { text: string; className: string } {
     }
 }
 
-function render(): void {
+function renderRows(): void {
     clear(rowsEl);
     for (const item of items) {
         const status = statusLabel(item);
@@ -115,17 +110,18 @@ function appendLog(chunk: string): void {
     }
 }
 
-onMessage<HostMessage>((message) => {
+/** True when the message was one of the updater's, so the caller can stop. */
+export function handleUpdateMessage(message: HostMessage): boolean {
     if (message.type === 'updateStatus') {
         items = message.items;
         running = message.running;
-        render();
-        return;
+        renderRows();
+        return true;
     }
 
     if (message.type === 'updateLog') {
         appendLog(message.chunk);
-        return;
+        return true;
     }
 
     if (message.type === 'updateDone') {
@@ -138,8 +134,29 @@ onMessage<HostMessage>((message) => {
             banner.hidden = true;
             appendLog('\n✓ finished\n');
         }
-        render();
+        renderRows();
+        return true;
     }
-});
 
-post({ type: 'ready' });
+    return false;
+}
+
+/** Draw the pane into a container the settings page owns. */
+export function renderUpdates(into: HTMLElement): void {
+    if (!checked) {
+        checked = true;
+        post({ type: 'checkUpdates' });
+    }
+    renderRows();
+    into.append(
+        h('div', { class: 'pane-head' },
+            h('div', { class: 'pane-title' }, 'Updates'),
+            h('div', { class: 'pane-sub' },
+                'The Arch base, the editor itself and this shell are updated separately.'),
+            h('div', { class: 'pane-actions' }, checkButton, allButton),
+        ),
+        banner,
+        rowsEl,
+        logEl,
+    );
+}

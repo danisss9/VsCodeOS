@@ -8,10 +8,13 @@ import type { AudioState } from '../sys/audio';
 import type { BatteryState } from '../sys/battery';
 import type { BluetoothState } from '../sys/bluetooth';
 import type { NetworkState } from '../sys/network';
+import type { DisplayOutput, Rotation } from '../sys/display';
+import type { KeyboardState, RepeatRate } from '../sys/keyboard';
 import type { NowPlaying } from '../sys/mpris';
 import type { NotificationRecord } from '../sys/notifications';
 import type { PowerAction } from '../sys/power';
 import type { ProcessInfo, SystemInfo } from '../sys/procfs';
+import type { CleanupId, StorageState } from '../sys/storage';
 
 // Re-exported so the webview bundles can type their own copies of the payloads
 // without reaching into src/sys, which is host-only code.
@@ -19,9 +22,12 @@ export type { AudioState, AudioDevice } from '../sys/audio';
 export type { BatteryState } from '../sys/battery';
 export type { BluetoothState, BluetoothDevice } from '../sys/bluetooth';
 export type { NetworkState, AccessPoint, Connection } from '../sys/network';
+export type { DisplayOutput, DisplayMode, Rotation } from '../sys/display';
+export type { KeyboardState, KeyboardLayout, RepeatRate } from '../sys/keyboard';
 export type { NowPlaying } from '../sys/mpris';
 export type { NotificationRecord } from '../sys/notifications';
 export type { ProcessInfo, SystemInfo } from '../sys/procfs';
+export type { StorageState, MountUsage, DirectoryUsage, CleanupCategory, CleanupId } from '../sys/storage';
 
 export type FlyoutKind =
     | 'apps' | 'power' | 'powersettings' | 'calendar'
@@ -63,6 +69,41 @@ export interface FlyoutState {
     notifications?: NotificationRecord[];
     /** False when another daemon owns the bus name, so nothing will ever arrive. */
     notificationsAvailable?: boolean;
+}
+
+/** The panes of the System Settings app, in rail order. */
+export type SettingsSection = 'display' | 'keyboard' | 'sound' | 'storage' | 'updates' | 'about';
+
+export interface DisplaySettings {
+    /** False when there is no xrandr or no X display to talk to. */
+    available: boolean;
+    outputs: DisplayOutput[];
+    nightLight: boolean;
+    energySaver: boolean;
+    /** Backlight percentage, absent on a machine with no backlight. */
+    brightness?: number;
+}
+
+export interface AboutInfo {
+    hostname: string;
+    kernel: string;
+    architecture: string;
+    /** Contents of /usr/share/vscodeos/build-info, when the image wrote one. */
+    build?: string;
+    codeVersion?: string;
+    shellVersion: string;
+    cpu?: string;
+    memoryBytes?: number;
+    uptimeSeconds: number;
+}
+
+export interface SettingsState {
+    section: SettingsSection;
+    display?: DisplaySettings;
+    keyboard?: KeyboardState;
+    audio?: AudioState;
+    storage?: StorageState;
+    about?: AboutInfo;
 }
 
 /** One row in the updater. */
@@ -124,7 +165,10 @@ export type HostMessage =
     | { type: 'browserFrame'; data: string; width: number; height: number }
     | { type: 'browserState'; state: BrowserState }
     | { type: 'browserError'; message: string; fatal?: boolean }
-    // updater
+    // system settings
+    | { type: 'settings'; state: SettingsState }
+    | { type: 'settingsBusy'; label?: string }
+    // updater, which is the Updates pane of the settings app
     | { type: 'updateStatus'; items: UpdateItem[]; running?: UpdateTarget }
     | { type: 'updateLog'; chunk: string }
     | { type: 'updateDone'; ok: boolean; needsRestart: boolean; message?: string };
@@ -197,7 +241,14 @@ export type WebviewMessage =
     | { type: 'browserInput'; input: BrowserInput }
     | { type: 'browserTab'; action: 'new' | 'close' | 'select'; id?: string }
     | { type: 'browserExternal' }
-    // updater
+    // system settings
+    | { type: 'settingsSection'; section: SettingsSection }
+    | { type: 'cleanStorage'; ids: CleanupId[] }
+    | { type: 'revealPath'; path: string }
+    | { type: 'setDisplayMode'; output: string; mode: string; rate?: number; rotation?: Rotation; primary?: boolean }
+    | { type: 'setKeyboardLayout'; code: string; variant?: string }
+    | { type: 'setKeyRepeat'; repeat: RepeatRate }
+    // updater, which is the Updates pane of the settings app
     | { type: 'checkUpdates' }
     | { type: 'runUpdate'; target: UpdateTarget }
     | { type: 'restart'; mode: 'editor' | 'reboot' };

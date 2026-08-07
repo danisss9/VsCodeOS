@@ -13,7 +13,7 @@ import { Browser } from './apps/browser';
 import { FileExplorer } from './apps/fileExplorer';
 import { MediaPlayer } from './apps/mediaPlayer';
 import { MiniApps } from './apps/miniApps';
-import { Updater } from './apps/updater';
+import { SystemSettings } from './apps/systemSettings';
 import { StatusBar } from './statusbar';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
 import { TaskManagerProvider } from './views/taskManager';
@@ -21,6 +21,7 @@ import { MprisMonitor } from './sys/mpris';
 import { NotificationServer } from './sys/notifications';
 import * as audio from './sys/audio';
 import * as display from './sys/display';
+import * as keyboard from './sys/keyboard';
 import * as mpris from './sys/mpris';
 import { log } from './log';
 
@@ -88,7 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const apps = new MiniApps(panels);
     const player = new MediaPlayer(panels);
     const browser = new Browser(panels);
-    const updater = new Updater(panels);
+    const settings = new SystemSettings(panels);
     context.subscriptions.push(
         panels,
         apps,
@@ -96,6 +97,14 @@ export function activate(context: vscode.ExtensionContext): void {
         { dispose: () => files.dispose() },
     );
     void apps.ensureDirectories();
+
+    // X forgets the key repeat rate with the session, and there is no
+    // system-wide place to put it, so the setting is the record and this is
+    // what makes it stick across logins.
+    void keyboard.setRepeat({
+        delay: config().get<number>('keyboard.repeatDelay', keyboard.DEFAULT_REPEAT.delay),
+        rate: config().get<number>('keyboard.repeatRate', keyboard.DEFAULT_REPEAT.rate),
+    });
 
     // --- commands ----------------------------------------------------------
 
@@ -130,11 +139,11 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.settings.accessibility', () =>
         vscode.commands.executeCommand('workbench.action.openSettings', '@tag:accessibility'));
 
-    register('vscodeos.files.open', () => {
+    register('vscodeos.files.open', (startPath?: string) => {
         if (!config().get<boolean>('files.enabled', true)) {
             return vscode.window.showInformationMessage('The file explorer is disabled in settings.');
         }
-        return files.open();
+        return files.open(typeof startPath === 'string' ? startPath : undefined);
     });
 
     register('vscodeos.browser.open', (url?: string) => browser.open(typeof url === 'string' ? url : undefined));
@@ -154,7 +163,14 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.apps.screenshotRegion', guard(() => apps.captureRegion()));
     register('vscodeos.apps.recorder', guard(() => apps.recorderApp()));
     register('vscodeos.apps.player', guard((path?: string) => player.open(path)));
-    register('vscodeos.apps.updater', () => updater.open());
+    // Kept as an alias rather than removed: it is in the README, in muscle
+    // memory and in the command palette, and it still opens the same four rows.
+    register('vscodeos.apps.updater', () => settings.open('updates'));
+    register('vscodeos.settings.open', () => settings.open());
+    register('vscodeos.settings.display', () => settings.open('display'));
+    register('vscodeos.settings.keyboard', () => settings.open('keyboard'));
+    register('vscodeos.settings.sound', () => settings.open('sound'));
+    register('vscodeos.settings.storage', () => settings.open('storage'));
 
     // --- the Print key -----------------------------------------------------
 
