@@ -31,6 +31,19 @@ const banner = h('div', { class: 'error-banner', hidden: true });
 const backButton = iconButton('chevronLeft', 'Back', () => go(-1));
 const forwardButton = iconButton('chevronRight', 'Forward', () => go(1));
 
+/**
+ * The Recycle Bin is a place, not a directory, so it is browsed through a
+ * sentinel path the host intercepts. Everything that writes into the current
+ * folder - new file, new folder, paste, rename - is meaningless there, and the
+ * buttons hide rather than failing when pressed.
+ */
+const TRASH_PATH = 'trash://';
+const inTrash = (): boolean => currentPath === TRASH_PATH;
+
+const newFolderButton = iconButton('plus', 'New folder', () => post({ type: 'newFolder', path: currentPath }));
+const newFileButton = iconButton('file', 'New file', () => post({ type: 'newFile', path: currentPath }));
+const emptyBinButton = iconButton('trash', 'Empty the Recycle Bin', () => post({ type: 'emptyTrash' }));
+
 clear(root()).append(h('div', { class: 'app' },
     h('div', { class: 'toolbar' },
         backButton,
@@ -41,8 +54,9 @@ clear(root()).append(h('div', { class: 'app' },
         }),
         iconButton('refresh', 'Refresh', () => post({ type: 'navigate', path: currentPath })),
         breadcrumb,
-        iconButton('plus', 'New folder', () => post({ type: 'newFolder', path: currentPath })),
-        iconButton('file', 'New file', () => post({ type: 'newFile', path: currentPath })),
+        newFolderButton,
+        newFileButton,
+        emptyBinButton,
         iconButton(view === 'grid' ? 'list' : 'grid', 'Switch view', () => {
             view = view === 'grid' ? 'list' : 'grid';
             persist();
@@ -86,6 +100,12 @@ onMessage<HostMessage>((message) => {
     backButton.disabled = historyIndex <= 0;
     forwardButton.disabled = historyIndex >= history.length - 1;
 
+    const trash = inTrash();
+    newFolderButton.hidden = trash;
+    newFileButton.hidden = trash;
+    emptyBinButton.hidden = !trash;
+    emptyBinButton.disabled = entries.length === 0;
+
     renderPlaces();
     renderBreadcrumb();
     renderFiles();
@@ -126,6 +146,14 @@ function renderPlaces(): void {
 
 function renderBreadcrumb(): void {
     clear(breadcrumb);
+
+    if (inTrash()) {
+        // "trash://" has no path segments to split on, and splitting it would
+        // produce a "trash:" crumb that navigates nowhere.
+        breadcrumb.append(h('span', { class: 'crumb' }, 'Recycle Bin'));
+        return;
+    }
+
     const parts = currentPath.split('/').filter(Boolean);
     breadcrumb.append(h('button', { class: 'crumb', on: { click: () => navigate('/') } }, '/'));
     let accumulated = '';
@@ -162,7 +190,11 @@ function renderFiles(): void {
     for (const entry of visible) {
         const glyph = entry.isDirectory ? 'folder' : glyphFor(entry.name);
         const activate = (): void => {
-            if (entry.isDirectory) {
+            if (inTrash()) {
+                // Nothing in the bin can be browsed or opened in place, so the
+                // obvious gesture does the obvious thing.
+                post({ type: 'restoreFromTrash', paths: [entry.path] });
+            } else if (entry.isDirectory) {
                 navigate(entry.path);
             } else {
                 post({ type: 'openFile', path: entry.path });
@@ -182,7 +214,7 @@ function renderFiles(): void {
         };
 
         const common = {
-            title: entry.path,
+            title: entry.originalPath ?? entry.path,
             tabIndex: 0,
             on: {
                 click: select as (event: never) => void,
@@ -191,8 +223,10 @@ function renderFiles(): void {
                     if (event.key === 'Enter') {
                         activate();
                     } else if (event.key === 'Delete') {
-                        post({ type: 'delete', paths: [entry.path] });
-                    } else if (event.key === 'F2') {
+                        post(inTrash()
+                            ? { type: 'deleteFromTrash', paths: [entry.path] }
+                            : { type: 'delete', paths: [entry.path] });
+                    } else if (event.key === 'F2' && !inTrash()) {
                         post({ type: 'rename', path: entry.path });
                     }
                 }) as (event: never) => void,
@@ -220,7 +254,11 @@ function renderFiles(): void {
             },
             h('span', { class: entry.isDirectory ? 'folder-icon' : '', html: icon(glyph, 17) }),
             h('span', { class: 'name' }, entry.name),
-            h('span', { class: 'size' }, entry.isDirectory ? '' : formatBytes(entry.size)),
+            // In the bin, where it came from and when it went say far more than
+            // a size and an mtime that is now the deletion time anyway.
+            inTrash()
+                ? h('span', { class: 'size trash-origin' }, entry.originalPath ?? 'Original location unknown')
+                : h('span', { class: 'size' }, entry.isDirectory ? '' : formatBytes(entry.size)),
             h('span', { class: 'date' }, entry.modified ? new Date(entry.modified).toLocaleString() : ''),
             ));
         }
@@ -229,6 +267,15 @@ function renderFiles(): void {
 }
 
 function renderStatus(): void {
+    if (inTrash()) {
+        append(clear(status),
+            h('span', {}, entries.length === 0
+                ? 'The Recycle Bin is empty'
+                : `${entries.length} item${entries.length === 1 ? '' : 's'} in the Recycle Bin`),
+            selection.size > 0 ? h('span', {}, `${selection.size} selected`) : null,
+        );
+        return;
+    }
     const folders = entries.filter((e) => e.isDirectory && (showHidden || !e.hidden)).length;
     const files = entries.filter((e) => !e.isDirectory && (showHidden || !e.hidden)).length;
     append(clear(status),
@@ -246,27 +293,38 @@ function showMenu(event: MouseEvent, entry: FileEntry): void {
         h('button', { class: 'list-row', on: { click: () => { menu.remove(); action(); } } },
             h('span', { html: icon(glyph, 15) }), h('span', { class: 'list-name' }, label));
 
+    const items = inTrash()
+        ? [
+            item('Restore', 'undo', () => post({ type: 'restoreFromTrash', paths })),
+            item('Delete permanently', 'trash', () => post({ type: 'deleteFromTrash', paths })),
+            item('Empty Recycle Bin', 'close', () => post({ type: 'emptyTrash' })),
+        ]
+        : [
+            item(entry.isDirectory ? 'Open' : 'Open in editor', 'open', () =>
+                entry.isDirectory ? navigate(entry.path) : post({ type: 'openFile', path: entry.path })),
+            item('Open with default app', 'globe', () => post({ type: 'openExternal', path: entry.path })),
+            item('Reveal in sidebar', 'editor', () => post({ type: 'revealInSidebar', path: entry.path })),
+            item('Copy', 'file', () => post({ type: 'clipboard', paths, cut: false })),
+            item('Cut', 'file', () => post({ type: 'clipboard', paths, cut: true })),
+            item('Paste here', 'save', () => post({ type: 'paste', target: currentPath })),
+            item('Rename', 'editor', () => post({ type: 'rename', path: entry.path })),
+            item('Delete', 'trash', () => post({ type: 'delete', paths })),
+        ];
+
+    // Clamped to the menu's own height rather than a constant tuned to one
+    // length: the bin's menu is three rows and the ordinary one is eight.
+    const height = items.length * 30 + 12;
     const menu = h('div', {
         class: 'context-menu flyout',
         style: {
             position: 'fixed',
             left: `${Math.min(event.clientX, window.innerWidth - 220)}px`,
-            top: `${Math.min(event.clientY, window.innerHeight - 260)}px`,
+            top: `${Math.min(event.clientY, window.innerHeight - height)}px`,
             width: '210px',
             padding: '4px',
             zIndex: '30',
         },
-    },
-    item(entry.isDirectory ? 'Open' : 'Open in editor', 'open', () =>
-        entry.isDirectory ? navigate(entry.path) : post({ type: 'openFile', path: entry.path })),
-    item('Open with default app', 'globe', () => post({ type: 'openExternal', path: entry.path })),
-    item('Reveal in sidebar', 'editor', () => post({ type: 'revealInSidebar', path: entry.path })),
-    item('Copy', 'file', () => post({ type: 'clipboard', paths, cut: false })),
-    item('Cut', 'file', () => post({ type: 'clipboard', paths, cut: true })),
-    item('Paste here', 'save', () => post({ type: 'paste', target: currentPath })),
-    item('Rename', 'editor', () => post({ type: 'rename', path: entry.path })),
-    item('Delete', 'trash', () => post({ type: 'delete', paths })),
-    );
+    }, ...items);
 
     document.body.append(menu);
     const dismiss = (): void => {
@@ -295,7 +353,9 @@ function glyphFor(name: string): string {
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Delete' && selection.size > 0) {
-        post({ type: 'delete', paths: [...selection] });
+        post(inTrash()
+            ? { type: 'deleteFromTrash', paths: [...selection] }
+            : { type: 'delete', paths: [...selection] });
     } else if ((event.ctrlKey || event.metaKey) && event.key === 'c' && selection.size > 0) {
         post({ type: 'clipboard', paths: [...selection], cut: false });
     } else if ((event.ctrlKey || event.metaKey) && event.key === 'x' && selection.size > 0) {

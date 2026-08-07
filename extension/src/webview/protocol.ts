@@ -235,6 +235,9 @@ export type WebviewMessage =
     | { type: 'newFile'; path: string }
     | { type: 'rename'; path: string }
     | { type: 'delete'; paths: string[] }
+    | { type: 'restoreFromTrash'; paths: string[] }
+    | { type: 'deleteFromTrash'; paths: string[] }
+    | { type: 'emptyTrash' }
     | { type: 'clipboard'; paths: string[]; cut: boolean }
     | { type: 'paste'; target: string }
     | { type: 'revealInSidebar'; path: string }
@@ -287,6 +290,10 @@ export interface FileEntry {
     size: number;
     modified: number;
     hidden: boolean;
+    /** Recycle Bin only: where the item was before it was deleted. */
+    originalPath?: string;
+    /** Recycle Bin only: when it was deleted, in milliseconds. */
+    deletedAt?: number;
 }
 
 export interface Place {

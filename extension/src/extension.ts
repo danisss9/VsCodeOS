@@ -17,12 +17,14 @@ import { Firewall } from './apps/firewall';
 import { SystemSettings } from './apps/systemSettings';
 import { StatusBar } from './statusbar';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
+import { RecycleBinProvider } from './views/recycleBin';
 import { TaskManagerProvider } from './views/taskManager';
 import { MprisMonitor } from './sys/mpris';
 import { NotificationServer } from './sys/notifications';
 import * as audio from './sys/audio';
 import * as display from './sys/display';
 import * as keyboard from './sys/keyboard';
+import { TrashService } from './sys/trash';
 import * as mpris from './sys/mpris';
 import { log } from './log';
 
@@ -83,10 +85,24 @@ export function activate(context: vscode.ExtensionContext): void {
         taskManager,
     );
 
+    // --- recycle bin -------------------------------------------------------
+    //
+    // One service behind both surfaces - this view and the Files app's places
+    // list - so restoring in either redraws the other.
+
+    const trash = new TrashService();
+    const recycleBin = new RecycleBinProvider(context, trash);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(RecycleBinProvider.viewId, recycleBin, {
+            webviewOptions: { retainContextWhenHidden: true },
+        }),
+        recycleBin,
+    );
+
     // --- apps --------------------------------------------------------------
 
     const panels = new AppPanels(context);
-    const files = new FileExplorer(context);
+    const files = new FileExplorer(context, trash);
     const apps = new MiniApps(panels);
     const player = new MediaPlayer(panels);
     const browser = new Browser(panels);
@@ -173,6 +189,9 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.settings.keyboard', () => settings.open('keyboard'));
     register('vscodeos.settings.sound', () => settings.open('sound'));
     register('vscodeos.settings.storage', () => settings.open('storage'));
+
+    register('vscodeos.recycleBin.open', () =>
+        vscode.commands.executeCommand(`${RecycleBinProvider.viewId}.focus`));
 
     register('vscodeos.firewall.open', () => {
         if (!config().get<boolean>('firewall.enabled', true)) {

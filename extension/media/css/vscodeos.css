@@ -1392,6 +1392,42 @@ audio {
     margin-left: 8px;
 }
 
+/* ------------------------------------------------------------ recycle bin */
+
+/* The bin shares the activity bar container with the Task Manager, so its rows
+   are the narrow kind: name over origin, with no columns. */
+.bin .toolbar {
+    gap: 6px;
+}
+
+.bin-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscodeos-card-border);
+}
+
+.bin-actions .button {
+    flex: 1;
+    justify-content: center;
+}
+
+.bin-count {
+    color: var(--vscodeos-muted);
+}
+
+/* In the Files app's list view the size column carries the original location
+   instead, which is far longer than a byte count and has to be able to lose
+   its middle rather than push the date off the row. */
+.trash-origin {
+    direction: rtl;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    unicode-bidi: plaintext;
+}
+
 /* --------------------------------------------------------------- firewall */
 
 .firewall {

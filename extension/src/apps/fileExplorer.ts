@@ -17,6 +17,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { openWithDefaultApp } from '../sys/browser';
 import { output } from '../sys/exec';
+import { TRASH_PATH, uniqueName } from '../sys/trash';
+import type { TrashService } from '../sys/trash';
 import { render, webviewOptions } from '../webview/html';
 import { mediaKind } from '../util/media';
 import type { FileEntry, Place, WebviewMessage } from '../webview/protocol';
@@ -27,7 +29,17 @@ export class FileExplorer {
     private currentPath = os.homedir();
     private clipboard: { paths: string[]; cut: boolean } | undefined;
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(
+        private readonly context: vscode.ExtensionContext,
+        private readonly trash: TrashService,
+    ) {
+        // Restoring something from the activity bar view has to show up here too.
+        this.trash.on('change', () => {
+            if (this.currentPath === TRASH_PATH) {
+                void this.list(TRASH_PATH);
+            }
+        });
+    }
 
     async open(startPath?: string): Promise<void> {
         if (startPath) {
@@ -56,6 +68,11 @@ export class FileExplorer {
     }
 
     private async list(target: string, error?: string): Promise<void> {
+        if (target === TRASH_PATH) {
+            await this.listTrash(error);
+            return;
+        }
+
         let entries: FileEntry[] = [];
         try {
             const names = await fs.readdir(target, { withFileTypes: true });
@@ -94,6 +111,29 @@ export class FileExplorer {
         this.post({ type: 'files', path: target, entries, places: await places(), error });
     }
 
+    /**
+     * The bin is not a directory listing. Names inside files/ are mangled to
+     * avoid collisions, so what gets shown is the original name, with where it
+     * came from and when it went in place of the usual size and date.
+     */
+    private async listTrash(error?: string): Promise<void> {
+        this.currentPath = TRASH_PATH;
+        const items = await this.trash.list();
+        const entries: FileEntry[] = items.map((item) => ({
+            name: item.originalPath ? path.basename(item.originalPath) : item.name,
+            // The key the host needs back for restore and delete, not a real path.
+            path: item.name,
+            isDirectory: item.isDirectory,
+            isSymlink: false,
+            size: item.size,
+            modified: item.deletedAt ?? 0,
+            hidden: false,
+            originalPath: item.originalPath,
+            deletedAt: item.deletedAt,
+        }));
+        this.post({ type: 'files', path: TRASH_PATH, entries, places: await places(), error });
+    }
+
     private async handle(message: WebviewMessage): Promise<void> {
         try {
             switch (message.type) {
@@ -106,6 +146,14 @@ export class FileExplorer {
                     return;
 
                 case 'openFile': {
+                    if (this.currentPath === TRASH_PATH) {
+                        // Opening something in the bin would edit a file that is
+                        // meant to be deleted; restore it first.
+                        void vscode.window.showInformationMessage(
+                            'Restore this item before opening it.',
+                        );
+                        return;
+                    }
                     const stat = await fs.stat(message.path);
                     if (stat.isDirectory()) {
                         await this.list(message.path);
@@ -163,6 +211,10 @@ export class FileExplorer {
                 }
 
                 case 'delete': {
+                    if (this.currentPath === TRASH_PATH) {
+                        await this.deleteFromTrash(message.paths);
+                        return;
+                    }
                     const label = message.paths.length === 1
                         ? `"${path.basename(message.paths[0])}"`
                         : `${message.paths.length} items`;
@@ -186,7 +238,46 @@ export class FileExplorer {
                             await fs.rm(target, { recursive: true, force: true });
                         }
                     }
+                    if (choice === 'Move to trash') {
+                        this.trash.notifyChanged();
+                    }
                     await this.list(this.currentPath);
+                    return;
+                }
+
+                case 'restoreFromTrash': {
+                    const { restored, skipped } = await this.trash.restore(message.paths);
+                    if (skipped.length > 0) {
+                        void vscode.window.showWarningMessage(
+                            `${skipped.length} item${skipped.length === 1 ? '' : 's'} could not be restored: `
+                            + 'the original location is unknown.',
+                        );
+                    } else if (restored > 0) {
+                        void vscode.window.showInformationMessage(
+                            `Restored ${restored} item${restored === 1 ? '' : 's'}.`,
+                        );
+                    }
+                    await this.list(TRASH_PATH);
+                    return;
+                }
+
+                case 'deleteFromTrash':
+                    await this.deleteFromTrash(message.paths);
+                    return;
+
+                case 'emptyTrash': {
+                    if (await this.trash.isEmpty()) {
+                        return;
+                    }
+                    const choice = await vscode.window.showWarningMessage(
+                        'Empty the Recycle Bin?',
+                        { modal: true, detail: 'Everything in it is deleted for good.' },
+                        'Empty Recycle Bin',
+                    );
+                    if (choice === 'Empty Recycle Bin') {
+                        await this.trash.empty();
+                    }
+                    await this.list(TRASH_PATH);
                     return;
                 }
 
@@ -224,6 +315,19 @@ export class FileExplorer {
         }
     }
 
+    private async deleteFromTrash(names: string[]): Promise<void> {
+        const label = names.length === 1 ? 'this item' : `${names.length} items`;
+        const choice = await vscode.window.showWarningMessage(
+            `Permanently delete ${label}?`,
+            { modal: true, detail: 'This cannot be undone.' },
+            'Delete permanently',
+        );
+        if (choice === 'Delete permanently') {
+            await this.trash.remove(names);
+        }
+        await this.list(TRASH_PATH);
+    }
+
     dispose(): void {
         this.panel?.dispose();
     }
@@ -253,6 +357,9 @@ async function places(): Promise<Place[]> {
         }
     }
     existing.push({ name: 'Filesystem', path: '/', icon: 'disk' });
+    // Always listed, even when empty: a Recycle Bin that appears only once you
+    // have deleted something is a Recycle Bin nobody finds.
+    existing.push({ name: 'Recycle Bin', path: TRASH_PATH, icon: 'trash' });
 
     // Removable media, straight from lsblk rather than by guessing at /run/media.
     const mounts = await output('lsblk', ['-nrpo', 'MOUNTPOINT,LABEL,RM'], 4000);
@@ -267,25 +374,4 @@ async function places(): Promise<Place[]> {
         existing.push({ name: label || path.basename(mountpoint), path: mountpoint, icon: 'disk' });
     }
     return existing;
-}
-
-/** "report.txt" -> "report (1).txt" when pasting into the same folder. */
-async function uniqueName(target: string): Promise<string> {
-    try {
-        await fs.access(target);
-    } catch {
-        return target;
-    }
-    const directory = path.dirname(target);
-    const extension = path.extname(target);
-    const base = path.basename(target, extension);
-    for (let i = 1; i < 1000; i++) {
-        const candidate = path.join(directory, `${base} (${i})${extension}`);
-        try {
-            await fs.access(candidate);
-        } catch {
-            return candidate;
-        }
-    }
-    return `${target}.${Date.now()}`;
 }
