@@ -117,7 +117,11 @@ install -m 0644 "${SRC_DIR}"/dist/*.js "${TARGET}/dist/"
 install -d -m 0755 "${TARGET}/media/dist" "${TARGET}/media/css" "${TARGET}/media/icons"
 install -m 0644 "${SRC_DIR}"/media/dist/*.js "${TARGET}/media/dist/"
 install -m 0644 "${SRC_DIR}"/media/css/*.css "${TARGET}/media/css/"
+# The svg files are container/panel icons; the woff is the icon font behind
+# $(vscodeos-power). build-font.py, which generates it, is deliberately not
+# shipped - the font is committed and a build never regenerates it.
 install -m 0644 "${SRC_DIR}"/media/icons/*.svg "${TARGET}/media/icons/"
+install -m 0644 "${SRC_DIR}"/media/icons/*.woff "${TARGET}/media/icons/"
 
 version="$(node -p "require('${TARGET}/package.json').version")"
 msg "VsCodeOsCore ${version} staged in ${TARGET} ($(du -sh "${TARGET}" | cut -f1))"

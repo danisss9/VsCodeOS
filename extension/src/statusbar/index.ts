@@ -54,9 +54,11 @@ export class StatusBar implements vscode.Disposable {
         this.clock = this.create('clock', PRIORITY.clock, 'vscodeos.calendar.show', 'Date and time');
         this.power = this.create('power', PRIORITY.power, 'vscodeos.power.menu', 'Power');
 
-        // No codicon is a power symbol; circle-slash is the closest that is
-        // guaranteed to exist in every VS Code build.
-        this.power.text = '$(circle-slash)';
+        // No codicon is a power symbol - the nearest of the 753 is circle-slash,
+        // which is a "no entry" sign - so this one comes from the extension's own
+        // icon font, registered under contributes.icons in package.json. It is
+        // drawn to codicon's metrics, so it sits level with its neighbours.
+        this.power.text = '$(vscodeos-power)';
         this.power.tooltip = new vscode.MarkdownString('**Power** — sleep, restart or shut down');
 
         this.music.on('change', (state: NowPlaying | undefined) => this.renderMedia(state));
