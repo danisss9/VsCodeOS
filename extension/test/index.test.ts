@@ -15,8 +15,16 @@ import { describe, it } from 'node:test';
 
 import { evaluate, isError } from '../media/src/lib/calc';
 import { expandHome, formatBytes, formatDate, formatDuration, formatElapsed, formatTime } from '../src/util/format';
+import { archiveBaseName, archiveKind, isMultiFileArchive } from '../src/util/archive';
 import { mediaFilterExtensions, mediaKind } from '../src/util/media';
-import { parseBluetoothDevices, parsePendingUpdates } from '../src/util/parse';
+import { notificationText, parseActions, stripNotificationMarkup, urgencyOf } from '../src/util/notify';
+import {
+    parseBluetoothDevices,
+    parsePendingUpdates,
+    parseTrashInfo,
+    parseUfwStatus,
+    parseXrandrOutputs,
+} from '../src/util/parse';
 import { codeUpdateUrl, normaliseAddress } from '../src/util/url';
 
 describe('calculator', () => {
@@ -262,5 +270,251 @@ describe('VS Code update endpoint', () => {
         // Sending the real commit would answer "you are up to date" and the
         // updater would never see a version to compare against.
         assert.ok(codeUpdateUrl('x64').endsWith(`/${'0'.repeat(40)}`));
+    });
+});
+
+describe('archive classification', () => {
+    const cases: [string, string | undefined][] = [
+        ['photos.zip', 'zip'],
+        ['backup.tar', 'tar'],
+        // The whole point: the last dot is the wrong place to split.
+        ['photos.tar.gz', 'tar.gz'],
+        ['photos.tar.xz', 'tar.xz'],
+        ['photos.tar.bz2', 'tar.bz2'],
+        ['photos.tar.zst', 'tar.zst'],
+        ['photos.tgz', 'tar.gz'],
+        ['notes.txt.gz', 'gz'],
+        ['app.jar', 'zip'],
+        ['thing.7z', '7z'],
+        ['ARCHIVE.ZIP', 'zip'],
+        ['/home/vscodeos/Downloads/linux-6.12.tar.xz', 'tar.xz'],
+        ['report.txt', undefined],
+        ['noextension', undefined],
+        // A leading dot is a hidden file, not an extension.
+        ['.gz', undefined],
+        ['.bashrc', undefined],
+    ];
+    for (const [name, expected] of cases) {
+        it(`${name} -> ${expected ?? 'not an archive'}`, () => {
+            assert.equal(archiveKind(name), expected);
+        });
+    }
+
+    it('knows which formats hold more than one file', () => {
+        assert.equal(isMultiFileArchive('zip'), true);
+        assert.equal(isMultiFileArchive('tar.gz'), true);
+        assert.equal(isMultiFileArchive('gz'), false);
+        assert.equal(isMultiFileArchive('xz'), false);
+    });
+
+    it('strips the whole suffix when naming a destination', () => {
+        assert.equal(archiveBaseName('photos.tar.gz'), 'photos');
+        assert.equal(archiveBaseName('notes.txt.gz'), 'notes.txt');
+        assert.equal(archiveBaseName('/tmp/a/b.zip'), 'b');
+        assert.equal(archiveBaseName('plain'), 'plain');
+    });
+});
+
+describe('notification payloads', () => {
+    it('strips the markup subset the spec allows in a body', () => {
+        assert.equal(stripNotificationMarkup('<b>Build</b> finished'), 'Build finished');
+        assert.equal(stripNotificationMarkup('see <a href="http://x/">the log</a>'), 'see the log');
+        assert.equal(stripNotificationMarkup('one<br/>two'), 'one\ntwo');
+        assert.equal(stripNotificationMarkup('<img src="x" alt="y"/>done'), 'done');
+    });
+
+    it('unescapes entities so an ampersand is an ampersand', () => {
+        assert.equal(stripNotificationMarkup('rock &amp; roll'), 'rock & roll');
+        assert.equal(stripNotificationMarkup('&lt;not a tag&gt;'), '<not a tag>');
+        assert.equal(stripNotificationMarkup('&#65;&#66;'), 'AB');
+        // Something unrecognised is left exactly as it came.
+        assert.equal(stripNotificationMarkup('&zzz;'), '&zzz;');
+    });
+
+    it('pairs the flat action array into keys and labels', () => {
+        assert.deepEqual(parseActions(['reply', 'Reply', 'archive', 'Archive']), [
+            { key: 'reply', label: 'Reply' },
+            { key: 'archive', label: 'Archive' },
+        ]);
+    });
+
+    it('drops the default action, which is a click target and not a button', () => {
+        assert.deepEqual(parseActions(['default', 'Open', 'reply', 'Reply']), [
+            { key: 'reply', label: 'Reply' },
+        ]);
+    });
+
+    it('survives a malformed action list', () => {
+        assert.deepEqual(parseActions([]), []);
+        assert.deepEqual(parseActions(['orphan']), []);
+        assert.deepEqual(parseActions(['a', '', 'b', 'B']), [{ key: 'b', label: 'B' }]);
+    });
+
+    it('reads urgency, defaulting anything odd to normal', () => {
+        assert.equal(urgencyOf({ urgency: 0 }), 'low');
+        assert.equal(urgencyOf({ urgency: 1 }), 'normal');
+        assert.equal(urgencyOf({ urgency: 2 }), 'critical');
+        assert.equal(urgencyOf({}), 'normal');
+        assert.equal(urgencyOf(undefined), 'normal');
+        assert.equal(urgencyOf({ urgency: 'loud' }), 'normal');
+    });
+
+    it('joins summary and body into one line', () => {
+        assert.equal(notificationText('Backup', 'finished in 3s'), 'Backup — finished in 3s');
+        assert.equal(notificationText('Backup', ''), 'Backup');
+        assert.equal(notificationText('', 'orphan body'), 'orphan body');
+        assert.equal(notificationText('', ''), 'Notification');
+        assert.equal(notificationText('Sync', 'line one\nline two'), 'Sync — line one line two');
+    });
+});
+
+describe('xrandr output', () => {
+    const query = [
+        'Screen 0: minimum 320 x 200, current 4480 x 1440, maximum 16384 x 16384',
+        'eDP-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 344mm x 194mm',
+        '   1920x1080     60.02*+  59.97    59.93  ',
+        '   1680x1050     59.95    59.88  ',
+        'DP-1 connected 2560x1440+1920+0 left (normal left inverted right x axis y axis) 597mm x 336mm',
+        '   2560x1440     59.95*+',
+        'HDMI-1 disconnected (normal left inverted right x axis y axis)',
+    ].join('\n');
+
+    it('finds every output and its connection state', () => {
+        const outputs = parseXrandrOutputs(query);
+        assert.deepEqual(outputs.map((o) => o.name), ['eDP-1', 'DP-1', 'HDMI-1']);
+        assert.deepEqual(outputs.map((o) => o.connected), [true, true, false]);
+    });
+
+    it('marks the primary output and only that one', () => {
+        const outputs = parseXrandrOutputs(query);
+        assert.deepEqual(outputs.map((o) => o.primary), [true, false, false]);
+    });
+
+    it('reads rotation from before the bracket, not from inside it', () => {
+        // The parenthesised list names every rotation on every line, so a naive
+        // search finds "left" on an output that is not rotated at all.
+        const outputs = parseXrandrOutputs(query);
+        assert.equal(outputs[0].rotation, 'normal');
+        assert.equal(outputs[1].rotation, 'left');
+        assert.equal(outputs[2].rotation, 'normal');
+    });
+
+    it('reads geometry and the active mode', () => {
+        const [edp, dp] = parseXrandrOutputs(query);
+        assert.deepEqual(edp.geometry, { width: 1920, height: 1080, x: 0, y: 0 });
+        assert.deepEqual(dp.geometry, { width: 2560, height: 1440, x: 1920, y: 0 });
+        assert.equal(edp.currentMode, '1920x1080');
+        assert.equal(edp.currentRate, 60.02);
+    });
+
+    it('collects every mode with its rates and flags', () => {
+        const [edp] = parseXrandrOutputs(query);
+        assert.equal(edp.modes.length, 2);
+        assert.deepEqual(edp.modes[0], {
+            size: '1920x1080',
+            width: 1920,
+            height: 1080,
+            rates: [60.02, 59.97, 59.93],
+            current: true,
+            preferred: true,
+        });
+        assert.equal(edp.modes[1].current, false);
+        assert.equal(edp.modes[1].preferred, false);
+    });
+
+    it('leaves a disconnected output with no modes and no geometry', () => {
+        const hdmi = parseXrandrOutputs(query)[2];
+        assert.deepEqual(hdmi.modes, []);
+        assert.equal(hdmi.geometry, undefined);
+    });
+
+    it('returns nothing when xrandr could not run', () => {
+        assert.deepEqual(parseXrandrOutputs(undefined), []);
+        assert.deepEqual(parseXrandrOutputs(''), []);
+    });
+});
+
+describe('ufw status', () => {
+    const verbose = [
+        'Status: active',
+        'Logging: on (low)',
+        'Default: deny (incoming), allow (outgoing), disabled (routed)',
+        'New profiles: skip',
+        '',
+        'To                         Action      From',
+        '--                         ------      ----',
+        '[ 1] 22/tcp                     ALLOW IN    Anywhere',
+        '[ 2] 80,443/tcp                 ALLOW IN    Anywhere',
+        '[ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)',
+        '[ 4] 3306/tcp                   DENY IN     192.168.1.0/24',
+    ].join('\n');
+
+    it('reads the state and the default policies', () => {
+        const status = parseUfwStatus(verbose);
+        assert.equal(status.active, true);
+        assert.equal(status.logging, 'on (low)');
+        assert.equal(status.incoming, 'deny');
+        assert.equal(status.outgoing, 'allow');
+        // "disabled" is not a policy word, so routed stays unknown.
+        assert.equal(status.routed, undefined);
+    });
+
+    it('splits the columns even though every field can contain a space', () => {
+        const status = parseUfwStatus(verbose);
+        assert.equal(status.rules.length, 4);
+        assert.deepEqual(status.rules[0], {
+            number: 1, to: '22/tcp', action: 'ALLOW IN', from: 'Anywhere', v6: false,
+        });
+        assert.deepEqual(status.rules[3], {
+            number: 4, to: '3306/tcp', action: 'DENY IN', from: '192.168.1.0/24', v6: false,
+        });
+    });
+
+    it('tags the IPv6 half of a rule', () => {
+        const status = parseUfwStatus(verbose);
+        assert.deepEqual(status.rules.map((r) => r.v6), [false, false, true, false]);
+    });
+
+    it('reports an inactive firewall with no rules', () => {
+        const status = parseUfwStatus('Status: inactive\n');
+        assert.equal(status.active, false);
+        assert.deepEqual(status.rules, []);
+    });
+
+    it('survives no output at all', () => {
+        assert.deepEqual(parseUfwStatus(undefined), { active: false, rules: [] });
+    });
+});
+
+describe('trashinfo files', () => {
+    it('decodes the original path', () => {
+        const info = parseTrashInfo([
+            '[Trash Info]',
+            'Path=/home/vscodeos/Documents/report%20final%20(2).txt',
+            'DeletionDate=2026-08-07T12:34:56',
+        ].join('\n'));
+        assert.equal(info?.path, '/home/vscodeos/Documents/report final (2).txt');
+        assert.equal(new Date(info?.deletedAt ?? 0).getFullYear(), 2026);
+    });
+
+    it('tolerates CRLF and odd spacing', () => {
+        const info = parseTrashInfo('[Trash Info]\r\nPath = /tmp/a.txt \r\nDeletionDate =2026-01-02T03:04:05\r\n');
+        assert.equal(info?.path, '/tmp/a.txt');
+        assert.ok(info?.deletedAt);
+    });
+
+    it('keeps the entry when the date is missing or unparseable', () => {
+        assert.deepEqual(parseTrashInfo('Path=/tmp/a.txt'), { path: '/tmp/a.txt', deletedAt: undefined });
+        assert.equal(parseTrashInfo('Path=/tmp/a.txt\nDeletionDate=never')?.deletedAt, undefined);
+    });
+
+    it('gives up on an entry with no path, which cannot be restored', () => {
+        assert.equal(parseTrashInfo('[Trash Info]\nDeletionDate=2026-08-07T12:34:56'), undefined);
+        assert.equal(parseTrashInfo(''), undefined);
+        assert.equal(parseTrashInfo(undefined), undefined);
+    });
+
+    it('keeps a malformed escape rather than dropping the file', () => {
+        assert.equal(parseTrashInfo('Path=/tmp/100%.txt')?.path, '/tmp/100%.txt');
     });
 });
