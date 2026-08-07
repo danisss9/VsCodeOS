@@ -21,15 +21,33 @@ export type { NetworkState, AccessPoint, Connection } from '../sys/network';
 export type { NowPlaying } from '../sys/mpris';
 export type { ProcessInfo, SystemInfo } from '../sys/procfs';
 
-export type FlyoutKind = 'power' | 'calendar' | 'quicksettings' | 'volume' | 'network' | 'music';
+export type FlyoutKind = 'apps' | 'power' | 'powersettings' | 'calendar' | 'volume' | 'network' | 'bluetooth' | 'music';
+
+/**
+ * One entry in the app launcher. Deliberately plain data: the registry that
+ * produces these lives on the host and knows how to test whether an app is
+ * enabled, but only the serialisable half crosses into the webview.
+ */
+export interface AppEntry {
+    id: string;
+    title: string;
+    description: string;
+    /** Key in media/src/lib/icons.ts. */
+    icon: string;
+    command: string;
+    /** Extra search terms, for words that are not in the title or description. */
+    keywords?: string[];
+}
 
 export interface FlyoutState {
     kind: FlyoutKind;
     now: number;
+    apps?: AppEntry[];
     battery?: BatteryState;
     audio?: AudioState;
     network?: NetworkState;
     bluetooth?: BluetoothState;
+    bluetoothScanning?: boolean;
     brightness?: number;
     airplaneMode?: boolean;
     nightLight?: boolean;
@@ -38,6 +56,42 @@ export interface FlyoutState {
     players?: string[];
     mprisAvailable?: boolean;
     canSuspend?: boolean;
+}
+
+/** One row in the updater. */
+export interface UpdateItem {
+    id: 'packages' | 'code' | 'shell' | 'kernel';
+    title: string;
+    description: string;
+    current: string;
+    latest?: string;
+    status: 'checking' | 'current' | 'available' | 'unknown';
+    detail?: string;
+    /** Argument for vscodeos-update, absent when the row cannot be acted on. */
+    target?: UpdateTarget;
+}
+
+export type UpdateTarget = 'packages' | 'code' | 'shell' | 'all';
+
+/** A pointer, wheel or key event forwarded from the browser webview to Chromium. */
+export type BrowserInput =
+    | { kind: 'mouse'; type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'; x: number; y: number; button: 'none' | 'left' | 'middle' | 'right'; buttons: number; clickCount: number; modifiers: number }
+    | { kind: 'wheel'; x: number; y: number; deltaX: number; deltaY: number; modifiers: number }
+    | { kind: 'key'; type: 'keyDown' | 'keyUp' | 'char'; key: string; code: string; text?: string; windowsVirtualKeyCode?: number; modifiers: number };
+
+export interface BrowserTab {
+    id: string;
+    title: string;
+    active: boolean;
+}
+
+export interface BrowserState {
+    url: string;
+    title: string;
+    loading: boolean;
+    canGoBack: boolean;
+    canGoForward: boolean;
+    tabs: BrowserTab[];
 }
 
 /** Host -> webview. */
@@ -49,13 +103,24 @@ export type HostMessage =
     | { type: 'tasks'; system: SystemInfo; processes: ProcessInfo[] }
     | { type: 'taskError'; message: string }
     | { type: 'files'; path: string; entries: FileEntry[]; places: Place[]; error?: string }
-    | { type: 'note'; path?: string; text: string; dirty: boolean }
     | { type: 'shot'; path: string; uri: string }
     | { type: 'shotError'; message: string }
     | { type: 'recording'; state: 'idle' | 'recording'; path?: string; uri?: string; startedAt?: number }
     | { type: 'recordError'; message: string }
     | { type: 'recordings'; items: { name: string; uri: string; path: string }[] }
-    | { type: 'image'; uri: string; name: string };
+    | { type: 'image'; uri: string; name: string }
+    // media player
+    | { type: 'media'; path: string; uri: string; name: string; kind: 'audio' | 'video' }
+    | { type: 'playlist'; items: { name: string; path: string; uri: string; kind: 'audio' | 'video' }[] }
+    | { type: 'mediaError'; message: string; path?: string }
+    // browser
+    | { type: 'browserFrame'; data: string; width: number; height: number }
+    | { type: 'browserState'; state: BrowserState }
+    | { type: 'browserError'; message: string; fatal?: boolean }
+    // updater
+    | { type: 'updateStatus'; items: UpdateItem[]; running?: UpdateTarget }
+    | { type: 'updateLog'; chunk: string }
+    | { type: 'updateDone'; ok: boolean; needsRestart: boolean; message?: string };
 
 /** Webview -> host. */
 export type WebviewMessage =
@@ -73,13 +138,16 @@ export type WebviewMessage =
     | { type: 'airplane'; enabled: boolean }
     | { type: 'bluetooth'; enabled: boolean }
     | { type: 'bluetoothDevice'; mac: string; connect: boolean }
+    | { type: 'bluetoothScan' }
+    | { type: 'bluetoothPair'; mac: string }
+    | { type: 'bluetoothForget'; mac: string; name: string }
     | { type: 'nightLight'; enabled: boolean }
     | { type: 'energySaver'; enabled: boolean }
-    | { type: 'accessibility' }
     | { type: 'transport'; action: 'playPause' | 'next' | 'previous' }
     | { type: 'seek'; seconds: number }
     | { type: 'launchMusic'; service: 'spotify' | 'ytmusic' }
     | { type: 'command'; command: string }
+    | { type: 'closeFlyout' }
     // task manager
     | { type: 'endTask'; pid: number; name: string }
     | { type: 'endTaskAsRoot'; pid: number; name: string }
@@ -95,11 +163,6 @@ export type WebviewMessage =
     | { type: 'clipboard'; paths: string[]; cut: boolean }
     | { type: 'paste'; target: string }
     | { type: 'revealInSidebar'; path: string }
-    // notepad
-    | { type: 'saveNote'; text: string; path?: string; saveAs?: boolean }
-    | { type: 'openNote' }
-    | { type: 'newNote' }
-    | { type: 'noteToEditor'; text: string }
     // screenshot
     | { type: 'capture'; mode: 'screen' | 'window' | 'region'; delay: number }
     | { type: 'saveShot'; path: string }
@@ -110,7 +173,21 @@ export type WebviewMessage =
     | { type: 'deleteRecording'; path: string }
     // paint
     | { type: 'savePng'; dataUrl: string; path?: string }
-    | { type: 'openImage' };
+    | { type: 'openImage' }
+    // media player
+    | { type: 'openMedia' }
+    | { type: 'playMedia'; path: string }
+    // browser
+    | { type: 'browserNavigate'; url: string }
+    | { type: 'browserGo'; action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
+    | { type: 'browserResize'; width: number; height: number }
+    | { type: 'browserInput'; input: BrowserInput }
+    | { type: 'browserTab'; action: 'new' | 'close' | 'select'; id?: string }
+    | { type: 'browserExternal' }
+    // updater
+    | { type: 'checkUpdates' }
+    | { type: 'runUpdate'; target: UpdateTarget }
+    | { type: 'restart'; mode: 'editor' | 'reboot' };
 
 export interface FileEntry {
     name: string;

@@ -12,6 +12,7 @@ const PATHS: Record<string, string> = {
     wifi: 'M2.5 9a15 15 0 0 1 19 0M5.5 12.5a10 10 0 0 1 13 0M8.5 16a5.5 5.5 0 0 1 7 0M12 19.5h.01',
     wifiOff: 'M2.5 9a15 15 0 0 1 6-3.6M15 5.6A15 15 0 0 1 21.5 9M8.5 16a5.5 5.5 0 0 1 7 0M12 19.5h.01M3 3l18 18',
     bluetooth: 'M7 7l10 10-5 4V3l5 4L7 17',
+    bluetoothOff: 'M7 7l10 10-5 4V3l5 4L7 17M3 3l18 18',
     airplane: 'M21 15l-9-4V5.5a1.5 1.5 0 0 0-3 0V11l-9 4v2l9-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L12 19v-4.5L21 17z',
     battery: 'M3 8h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM21 11v2',
     bolt: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z',
@@ -60,6 +61,14 @@ const PATHS: Record<string, string> = {
     memory: 'M3 7h18v10H3V7zM7 17v3M12 17v3M17 17v3M7 11v2M12 11v2M17 11v2',
     search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM16 16l5 5',
     warning: 'M12 3l9.5 17H2.5L12 3zM12 10v5M12 18h.01',
+    plug: 'M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-12 0V9zM12 18v3',
+    // A download arrow inside the refresh ring: "there is a newer one".
+    update: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5M12 9v6M9.5 12.5L12 15l2.5-2.5',
+    gear: 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM12 2.5l1.4 2.6 2.9-.5.6 2.9 2.6 1.4-1.4 2.6 1.4 2.6-2.6 1.4-.6 2.9-2.9-.5L12 21.5l-1.4-2.6-2.9.5-.6-2.9-2.6-1.4L5.9 12 4.5 9.4l2.6-1.4.6-2.9 2.9.5L12 2.5z',
+    calculator: 'M5 3h14v18H5V3zM7.5 7h9M7.5 11h2M11 11h2M14.5 11h2M7.5 14.5h2M11 14.5h2M14.5 14.5h2M7.5 18h2M11 18h5.5',
+    brush: 'M15.5 3.5l5 5-8 8-5-5 8-8zM7.5 11.5L4 15c-1 1-1 4-1 5 1 0 4 0 5-1l3.5-3.5',
+    tab: 'M3 6h7l2 2h9v10H3V6z',
+    fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 };
 
 /** Solid glyphs, drawn with a fill instead of a stroke. */

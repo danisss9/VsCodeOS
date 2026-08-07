@@ -15,6 +15,7 @@
 import * as vscode from 'vscode';
 import * as audioSys from '../sys/audio';
 import * as batterySys from '../sys/battery';
+import * as bluetoothSys from '../sys/bluetooth';
 import * as networkSys from '../sys/network';
 import { MprisMonitor, type NowPlaying } from '../sys/mpris';
 import { formatDate, formatTime } from '../util/format';
@@ -25,19 +26,31 @@ const PRIORITY = {
     battery: -100,
     volume: -200,
     network: -300,
+    bluetooth: -350,
     clock: -400,
     power: -Number.MAX_VALUE,
 } as const;
+
+/**
+ * The launcher, on the other side of the bar. Left alignment reads the other
+ * way round - a higher priority is further left - so this is a large positive
+ * number to put the button in the corner. The one thing that can still sit left
+ * of it is the remote indicator, and that is hidden on a machine with no remote
+ * extension installed, which is both images.
+ */
+const LAUNCHER_PRIORITY = 100000;
 
 const SLOW_TICK_MS = 5000;
 
 export class StatusBar implements vscode.Disposable {
     private readonly items: vscode.StatusBarItem[] = [];
+    private readonly launcher: vscode.StatusBarItem;
     private readonly power: vscode.StatusBarItem;
     private readonly clock: vscode.StatusBarItem;
     private readonly batteryItem: vscode.StatusBarItem;
     private readonly volumeItem: vscode.StatusBarItem;
     private readonly networkItem: vscode.StatusBarItem;
+    private readonly bluetoothItem: vscode.StatusBarItem;
     private readonly mediaItem: vscode.StatusBarItem;
 
     private clockTimer: NodeJS.Timeout | undefined;
@@ -48,11 +61,22 @@ export class StatusBar implements vscode.Disposable {
         // battery tile and the power button are both "power" to a user, but they
         // cannot share one here.
         this.mediaItem = this.create('media', PRIORITY.media, 'vscodeos.music.show', 'Music');
-        this.batteryItem = this.create('battery', PRIORITY.battery, 'vscodeos.quickSettings.show', 'Battery');
+        this.batteryItem = this.create('battery', PRIORITY.battery, 'vscodeos.power.settings', 'Battery');
         this.volumeItem = this.create('volume', PRIORITY.volume, 'vscodeos.volume.show', 'Volume');
         this.networkItem = this.create('network', PRIORITY.network, 'vscodeos.network.show', 'Network');
+        this.bluetoothItem = this.create('bluetooth', PRIORITY.bluetooth, 'vscodeos.bluetooth.show', 'Bluetooth');
         this.clock = this.create('clock', PRIORITY.clock, 'vscodeos.calendar.show', 'Date and time');
         this.power = this.create('power', PRIORITY.power, 'vscodeos.power.menu', 'Power');
+
+        this.launcher = this.create(
+            'apps',
+            LAUNCHER_PRIORITY,
+            'vscodeos.apps.menu',
+            'All apps',
+            vscode.StatusBarAlignment.Left,
+        );
+        this.launcher.text = '$(menu)';
+        this.launcher.tooltip = new vscode.MarkdownString('**All apps** — every program on this machine');
 
         // No codicon is a power symbol - the nearest of the 753 is circle-slash,
         // which is a "no entry" sign - so this one comes from the extension's own
@@ -64,12 +88,14 @@ export class StatusBar implements vscode.Disposable {
         this.music.on('change', (state: NowPlaying | undefined) => this.renderMedia(state));
     }
 
-    private create(id: string, priority: number, command: string, name: string): vscode.StatusBarItem {
-        const item = vscode.window.createStatusBarItem(
-            `vscodeos.${id}`,
-            vscode.StatusBarAlignment.Right,
-            priority,
-        );
+    private create(
+        id: string,
+        priority: number,
+        command: string,
+        name: string,
+        alignment = vscode.StatusBarAlignment.Right,
+    ): vscode.StatusBarItem {
+        const item = vscode.window.createStatusBarItem(`vscodeos.${id}`, alignment, priority);
         item.name = `VS Code OS: ${name}`;
         item.command = command;
         this.items.push(item);
@@ -77,6 +103,7 @@ export class StatusBar implements vscode.Disposable {
     }
 
     start(): void {
+        this.launcher.show();
         this.power.show();
         this.tickClock();
         void this.tickSlow();
@@ -108,15 +135,20 @@ export class StatusBar implements vscode.Disposable {
 
     /** Everything that costs a syscall or a subprocess, on a slower beat than the clock. */
     private async tickSlow(): Promise<void> {
-        await Promise.all([this.renderBattery(), this.renderVolume(), this.renderNetwork()]);
+        await Promise.all([
+            this.renderBattery(),
+            this.renderVolume(),
+            this.renderNetwork(),
+            this.renderBluetooth(),
+        ]);
     }
 
     private async renderBattery(): Promise<void> {
         const state = await batterySys.getState();
         if (!state.present) {
-            // A desktop still gets the tile: it is how quick settings is reached.
+            // A desktop still gets the tile: it is how the power menu is reached.
             this.batteryItem.text = '$(plug)';
-            this.batteryItem.tooltip = new vscode.MarkdownString('**On mains power**\n\n_Click for quick settings_');
+            this.batteryItem.tooltip = new vscode.MarkdownString('**On mains power**\n\n_Click for power settings_');
             this.batteryItem.show();
             return;
         }
@@ -129,7 +161,7 @@ export class StatusBar implements vscode.Disposable {
                 state.charging ? 'Charging' : state.onAc ? 'Plugged in' : 'On battery',
                 remaining ?? '',
                 '',
-                '_Click for quick settings_',
+                '_Click for brightness and energy saver_',
             ].filter(Boolean).join('\n\n'),
         );
         this.batteryItem.backgroundColor = !state.charging && state.level <= 10
@@ -169,6 +201,38 @@ export class StatusBar implements vscode.Disposable {
             '_Click to change network_',
         ].join('\n\n'));
         this.networkItem.show();
+    }
+
+    private async renderBluetooth(): Promise<void> {
+        // Cheap out before spawning bluetoothctl: `which` is cached, so a machine
+        // without bluez never pays for this tick at all.
+        if (!bluetoothSys.isAvailable()) {
+            this.bluetoothItem.hide();
+            return;
+        }
+        const state = await bluetoothSys.getSummary();
+        if (!state.available) {
+            this.bluetoothItem.hide();
+            return;
+        }
+
+        const { connected } = state;
+        const label = !state.powered
+            ? 'Off'
+            : connected.length === 1
+                ? connected[0]
+                : connected.length > 1
+                    ? `${connected.length} devices`
+                    : 'On';
+
+        this.bluetoothItem.text = `$(bluetooth) ${truncate(label, 18)}`;
+        this.bluetoothItem.tooltip = new vscode.MarkdownString([
+            `**Bluetooth ${state.powered ? 'on' : 'off'}**`,
+            connected.length > 0 ? connected.join(', ') : 'Nothing connected',
+            '',
+            '_Click for devices_',
+        ].join('\n\n'));
+        this.bluetoothItem.show();
     }
 
     private renderMedia(state: NowPlaying | undefined): void {

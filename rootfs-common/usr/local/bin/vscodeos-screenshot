@@ -1,0 +1,21 @@
+#!/bin/sh
+# Start a region screenshot in the running editor. Bound to the Print key by
+# openbox (see ~/.config/openbox/rc.xml).
+#
+# Why this exists at all: on X11 the Print key does not reach Electron as a
+# keydown, so a contributed VS Code keybinding cannot see it. The window manager
+# can, and `code --open-url` is the supported way to hand a URI to an already
+# running instance - VsCodeOsCore registers a handler for it.
+
+set -eu
+
+readonly URI="vscode://vscodeos.vscodeos-core/screenshot?mode=region"
+
+for code in /opt/visual-studio-code/bin/code /usr/local/bin/code code; do
+    if command -v "${code}" >/dev/null 2>&1; then
+        exec "${code}" --open-url "${URI}"
+    fi
+done
+
+echo "vscodeos-screenshot: Visual Studio Code is not installed" >&2
+exit 1

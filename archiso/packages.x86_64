@@ -27,6 +27,11 @@ mkinitcpio-nfs-utils
 sudo
 polkit
 dbus
+# checkupdates, for the Updater app. It lists pending updates against a copy of
+# the sync database, so the GUI never has to run `pacman -Sy` - which would
+# leave the real database half-synced and the machine one command away from a
+# partial upgrade.
+pacman-contrib
 
 # Live medium / installer tooling
 arch-install-scripts

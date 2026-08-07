@@ -6,7 +6,9 @@
 //   media/src/*.ts     -> media/dist/*.js         browser/IIFE, runs inside each webview
 //
 // Nothing is left in node_modules: the shipped extension is package.json, dist/
-// and media/, which keeps the payload that goes into every image small.
+// and media/, which keeps the payload that goes into every image small. That
+// applies to puppeteer-core too - the browser app's only runtime dependency is
+// bundled into dist/extension.js like everything else.
 
 import * as esbuild from 'esbuild';
 import { readdirSync } from 'node:fs';
@@ -40,8 +42,16 @@ const configs = [
         platform: 'node',
         target: 'node18',
         format: 'cjs',
-        // Supplied by the extension host at run time, never bundled.
-        external: ['vscode'],
+        external: [
+            // Supplied by the extension host at run time, never bundled.
+            'vscode',
+            // Optional native accelerators that `ws` (a puppeteer-core dependency)
+            // requires inside a try/catch. esbuild resolves them at build time
+            // regardless of the guard, so they have to be named here or the
+            // bundle fails on a machine that never installed them.
+            'bufferutil',
+            'utf-8-validate',
+        ],
     },
     {
         ...common,

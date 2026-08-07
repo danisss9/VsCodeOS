@@ -1,13 +1,16 @@
-// The flyouts: power, calendar, quick settings, volume, network and music.
+// The flyouts: apps, power, calendar, power settings, volume, network,
+// bluetooth and music.
 //
 // A VS Code extension cannot draw a popup anchored to a status bar item - there
-// is no such API - so the closest honest equivalent is a webview view in the
-// bottom panel, which opens directly above the status bar. The webview draws a
-// right-anchored card so it reads as a flyout rising out of the tray.
+// is no such API, and the only floating-window route (moving an editor to an
+// auxiliary window) drags editor tab chrome along with it and cannot be sized or
+// placed. So these are webview views, which VS Code will host in the side bar or
+// in the bottom panel. The side bar is the default: the bottom panel is where
+// the terminal lives, and clicking the clock should not close it.
 //
-// One provider serves all six panels and switches on a message, because the
-// panel container can only hold one view without splitting the space between
-// them, and because they share their whole refresh loop.
+// One provider serves all eight cards, because a container can only hold one
+// view without splitting the space between them, and because they share their
+// whole refresh loop.
 
 import * as vscode from 'vscode';
 import * as audio from '../sys/audio';
@@ -19,45 +22,80 @@ import * as mpris from '../sys/mpris';
 import * as network from '../sys/network';
 import * as power from '../sys/power';
 import { MprisMonitor } from '../sys/mpris';
-import { open as openBrowser } from '../sys/browser';
+import { availableApps } from '../apps/registry';
 import { render, webviewOptions } from '../webview/html';
 import type { FlyoutKind, FlyoutState, HostMessage, WebviewMessage } from '../webview/protocol';
 import { log } from '../log';
 
 const TITLES: Record<FlyoutKind, string> = {
+    apps: 'Apps',
     power: 'Power',
+    powersettings: 'Power Settings',
     calendar: 'Calendar',
-    quicksettings: 'Quick Settings',
     volume: 'Volume',
     network: 'Network',
+    bluetooth: 'Bluetooth',
     music: 'Music',
 };
 
 const REFRESH_MS = 2000;
 
+/**
+ * Cards the host has nothing new to say about. Polling them would rebuild the
+ * card every two seconds for no reason - and in the launcher's case it would
+ * rebuild the search box out from under whoever is typing into it. The calendar
+ * ticks its own clock inside the webview.
+ */
+const STATIC_KINDS: ReadonlySet<FlyoutKind> = new Set<FlyoutKind>(['apps', 'calendar']);
+
+export type FlyoutLocation = 'sidebar' | 'panel';
+
 export class FlyoutProvider implements vscode.WebviewViewProvider {
-    static readonly viewId = 'vscodeos.flyout';
+    /** Contributed twice, under a `when` on vscodeos.flyout.location; one resolves. */
+    static readonly sidebarViewId = 'vscodeos.flyout';
+    static readonly panelViewId = 'vscodeos.flyout.panel';
 
     private view: vscode.WebviewView | undefined;
-    private kind: FlyoutKind = 'quicksettings';
+    private kind: FlyoutKind = 'apps';
     private timer: NodeJS.Timeout | undefined;
     private refreshing = false;
+    private scanning = false;
 
     constructor(
         private readonly context: vscode.ExtensionContext,
         private readonly music: MprisMonitor,
     ) {}
 
+    private get location(): FlyoutLocation {
+        return vscode.workspace.getConfiguration('vscodeos').get<FlyoutLocation>('flyout.location', 'sidebar');
+    }
+
+    private get viewId(): string {
+        return this.location === 'panel' ? FlyoutProvider.panelViewId : FlyoutProvider.sidebarViewId;
+    }
+
+    /**
+     * What "click the tray item again to close it" has to run for each host.
+     * The side bar gets the toggle rather than a close command: both callers
+     * already know the view is the visible one, so toggling can only hide it.
+     */
+    private get closeCommand(): string {
+        return this.location === 'panel'
+            ? 'workbench.action.closePanel'
+            : 'workbench.action.toggleSidebarVisibility';
+    }
+
     /**
      * Open the panel on a given card. `<viewId>.focus` is auto-registered by the
-     * workbench for every contributed view and both reveals the panel and expands
-     * the view, which `WebviewView.show()` alone cannot do before the first resolve.
+     * workbench for every contributed view and both reveals the container and
+     * expands the view, which `WebviewView.show()` alone cannot do before the
+     * first resolve.
      */
     async show(kind: FlyoutKind): Promise<void> {
-        // Clicking the tray item that is already open closes the panel again,
-        // which is what a real flyout does.
+        // Clicking the tray item that is already open closes it again, which is
+        // what a real flyout does.
         if (this.view?.visible && this.kind === kind) {
-            await vscode.commands.executeCommand('workbench.action.closePanel');
+            await vscode.commands.executeCommand(this.closeCommand);
             return;
         }
         this.kind = kind;
@@ -65,8 +103,15 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
             this.view.title = TITLES[kind];
             this.view.show?.(true);
         }
-        await vscode.commands.executeCommand(`${FlyoutProvider.viewId}.focus`, { preserveFocus: true });
+        // The launcher wants the keyboard, so somebody can start typing straight
+        // into its search box; every other card is read, not typed into, and
+        // stealing focus from the editor for those would be rude.
+        await vscode.commands.executeCommand(`${this.viewId}.focus`, { preserveFocus: kind !== 'apps' });
         this.post({ type: 'flyout', kind });
+        // The kind decides whether this card polls at all.
+        if (this.view?.visible) {
+            this.startPolling();
+        }
         await this.refresh();
     }
 
@@ -101,6 +146,9 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
 
     private startPolling(): void {
         this.stopPolling();
+        if (STATIC_KINDS.has(this.kind)) {
+            return;
+        }
         this.timer = setInterval(() => void this.refresh(), REFRESH_MS);
     }
 
@@ -122,25 +170,31 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
         }
         this.refreshing = true;
         try {
+            const config = vscode.workspace.getConfiguration('vscodeos');
             const state: FlyoutState = { kind: this.kind, now: Date.now() };
 
-            if (this.kind === 'quicksettings' || this.kind === 'power') {
+            if (this.kind === 'apps') {
+                state.apps = availableApps(config);
+            }
+            if (this.kind === 'powersettings' || this.kind === 'power') {
                 state.battery = await battery.getState();
             }
-            if (this.kind === 'quicksettings' || this.kind === 'volume') {
+            if (this.kind === 'volume') {
                 state.audio = await audio.getState();
             }
-            if (this.kind === 'quicksettings') {
+            if (this.kind === 'powersettings') {
                 const brightness = await backlight.getState();
                 state.brightness = brightness.available && brightness.writable ? brightness.percent : undefined;
-                state.bluetooth = await bluetooth.getState();
-                state.airplaneMode = await network.isAirplaneMode();
                 state.nightLight = display.isNightLightOn();
                 state.energySaver = display.isEnergySaverOn();
-                state.network = await network.getState(false);
             }
             if (this.kind === 'network') {
                 state.network = await network.getState(scan);
+                state.airplaneMode = await network.isAirplaneMode();
+            }
+            if (this.kind === 'bluetooth') {
+                state.bluetooth = await bluetooth.getState();
+                state.bluetoothScanning = this.scanning;
             }
             if (this.kind === 'music') {
                 state.nowPlaying = (await this.music.refreshPosition()) ?? this.music.current;
@@ -240,12 +294,51 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
                 await this.refresh();
                 return;
 
+            case 'bluetoothScan': {
+                if (this.scanning) {
+                    return;
+                }
+                this.scanning = true;
+                this.post({ type: 'scanning' });
+                try {
+                    await bluetooth.scan();
+                } finally {
+                    this.scanning = false;
+                }
+                await this.refresh();
+                return;
+            }
+
             case 'bluetoothDevice': {
+                this.post({ type: 'busy', label: message.connect ? 'Connecting…' : 'Disconnecting…' });
                 const result = message.connect
                     ? await bluetooth.connect(message.mac)
-                    : (await bluetooth.disconnect(message.mac), { ok: true as const });
+                    : (await bluetooth.disconnect(message.mac), { ok: true as const, message: undefined });
                 if (!result.ok) {
                     void vscode.window.showErrorMessage(`Bluetooth: ${result.message}`);
+                }
+                await this.refresh();
+                return;
+            }
+
+            case 'bluetoothPair': {
+                this.post({ type: 'busy', label: 'Pairing…' });
+                const result = await bluetooth.pair(message.mac);
+                if (!result.ok) {
+                    void vscode.window.showErrorMessage(`Bluetooth: ${result.message}`);
+                }
+                await this.refresh();
+                return;
+            }
+
+            case 'bluetoothForget': {
+                const choice = await vscode.window.showWarningMessage(
+                    `Forget "${message.name}"?`,
+                    { modal: true, detail: 'You will have to pair it again to use it.' },
+                    'Forget',
+                );
+                if (choice === 'Forget') {
+                    await bluetooth.forget(message.mac);
                 }
                 await this.refresh();
                 return;
@@ -261,10 +354,6 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
             case 'energySaver':
                 await display.setEnergySaver(message.enabled);
                 await this.refresh();
-                return;
-
-            case 'accessibility':
-                await vscode.commands.executeCommand('workbench.action.openSettings', '@tag:accessibility');
                 return;
 
             case 'transport':
@@ -287,17 +376,16 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
                 const url = message.service === 'spotify'
                     ? 'https://open.spotify.com'
                     : 'https://music.youtube.com';
-                const preferred = vscode.workspace.getConfiguration('vscodeos').get<string>('browser.command') || undefined;
-                if (!openBrowser(url, { preferred, appMode: true })) {
-                    void vscode.window.showErrorMessage(
-                        'No browser found. Install chromium (or set vscodeos.browser.command).',
-                    );
-                }
+                await vscode.commands.executeCommand('vscodeos.browser.open', url);
                 return;
             }
 
             case 'command':
                 await vscode.commands.executeCommand(message.command);
+                return;
+
+            case 'closeFlyout':
+                await vscode.commands.executeCommand(this.closeCommand);
                 return;
 
             default:

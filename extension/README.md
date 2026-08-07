@@ -12,16 +12,44 @@ accidentally uninstalled.
 
 | | |
 | --- | --- |
-| **Tray** | Power button, clock and date, battery, volume, network and now-playing, at the right end of the status bar |
-| **Flyouts** | Power, calendar, quick settings, volume mixer, network picker and music player |
+| **Launcher** | An all-apps button in the bottom-left corner: a searchable grid of every program |
+| **Tray** | Now-playing, battery, volume, network, Bluetooth, clock and date, and the power button, at the right end of the status bar |
+| **Flyouts** | Apps, power, calendar, power settings, volume mixer, network picker, Bluetooth and music player |
 | **Task Manager** | Processes with CPU/RAM, per-core meters, load, uptime and thermals, in the activity bar |
-| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste, open with `xdg-open` |
+| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste. Everything opens in the editor |
+| **Browser** | A headless Chromium streamed into an editor tab, with tabs, an address bar and history |
+| **Media Player** | Video and audio in a tab, with a folder playlist |
 | **Music** | MPRIS transport for whatever is playing, plus launchers for Spotify Web and YouTube Music |
-| **Browser** | Launches Edge → Chromium → Firefox, whichever is installed |
-| **Apps** | Calculator, Notepad, Paint, Screenshot and Voice Recorder |
+| **Updater** | pacman, VS Code and the shell itself, with live output |
+| **Apps** | Calculator, Paint, Screenshot and Voice Recorder |
 
 Every feature is behind a `vscodeos.<feature>.enabled` setting, all defaulting to
-on. `VS Code OS: All Apps…` in the command palette lists everything.
+on. The all-apps button, or `VS Code OS: All Apps…` in the command palette,
+lists everything.
+
+### Three things worth knowing
+
+**The flyouts are not popups.** VS Code has no API to anchor one to a status bar
+item, and the only floating-window route — moving an editor to an auxiliary
+window — brings editor tab chrome with it and cannot be sized or placed. So they
+are a webview view, in the side bar by default. The bottom panel, where they used
+to live, is where the terminal is; `vscodeos.flyout.location` puts them back.
+
+**The browser is a screencast.** Every site worth visiting sends
+`X-Frame-Options`, which is why VS Code's own Simple Browser shows a blank
+rectangle on most of them. `puppeteer-core` drives a headless Chromium, CDP's
+`Page.startScreencast` pushes JPEG frames into an `<img>`, and pointer and key
+events go back through `Input.dispatch*`. That costs an encode and a decode per
+frame, so `vscodeos.browser.frameRate` and `vscodeos.browser.quality` are
+settings — turn them down on a Pi — the stream stops when the tab is hidden, and
+"Open in browser" is always there. `puppeteer-core` is the extension's one
+runtime dependency and is bundled into `dist/extension.js` like everything else.
+
+**Print Screen is bound by the window manager, not here.** On X11 the Print key
+never reaches Electron as a keydown, so a contributed keybinding cannot see it.
+Openbox runs `/usr/local/bin/vscodeos-screenshot`, which hands
+`vscode://vscodeos.vscodeos-core/screenshot?mode=region` to the running editor,
+where a `registerUriHandler` picks it up.
 
 ## Developing
 
@@ -57,8 +85,9 @@ src/
   extension.ts     activate(): wires everything, one DisposableStore
   sys/             the only code that touches the machine
   statusbar/       the tray, and the priority ladder that orders it
-  views/           flyout (panel) and task manager (activity bar) providers
-  apps/            file explorer, mini-apps, panel plumbing
+  views/           flyout (side bar) and task manager (activity bar) providers
+  apps/            registry, file explorer, browser, media player, updater,
+                   mini-apps, panel plumbing
   webview/         HTML shell + the host↔webview message types
 media/
   src/             one TypeScript entry point per page, shared code in src/lib

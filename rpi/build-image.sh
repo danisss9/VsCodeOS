@@ -425,6 +425,13 @@ rm -f "${staging}"/etc/{passwd,shadow,group,gshadow}
 cp -a "${staging}/." "${ROOT_MNT}/"
 rm -rf "${staging}"
 
+# polkit grants `pkexec /usr/local/bin/vscodeos-update` without a password, so
+# that script must be root-owned and unwritable by the kiosk user - otherwise
+# the grant is a one-line path to root. cp -a already carries the repository's
+# modes, but this is not a thing to leave to the umask of whoever built the image.
+chown 0:0 "${ROOT_MNT}/usr/local/bin/"vscodeos-* "${ROOT_MNT}/usr/local/bin/code"
+chmod 0755 "${ROOT_MNT}/usr/local/bin/"vscodeos-* "${ROOT_MNT}/usr/local/bin/code"
+
 msg "applying the Raspberry Pi overlay"
 cp -a "${RPI_DIR}/overlay/." "${ROOT_MNT}/"
 install -Dm0644 "${RPI_DIR}/boot/config.txt"  "${ROOT_MNT}/boot/config.txt"

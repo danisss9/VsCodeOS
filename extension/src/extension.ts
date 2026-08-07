@@ -2,14 +2,18 @@
 //
 // VS Code OS has no desktop environment: the editor is the entire user
 // interface. This extension supplies the parts of a desktop that the editor does
-// not have - a tray with power, clock, battery, volume and network; a task
-// manager; a file manager; and a handful of small apps - and is installed as a
-// built-in extension in both images, so it is there on first boot.
+// not have - a launcher, a tray with power, clock, battery, volume, network and
+// Bluetooth; a task manager; a file manager; a browser; a media player; an
+// updater; and a handful of small apps - and is installed as a built-in
+// extension in both images, so it is there on first boot.
 
 import * as vscode from 'vscode';
 import { AppPanels } from './apps/panels';
+import { Browser } from './apps/browser';
 import { FileExplorer } from './apps/fileExplorer';
+import { MediaPlayer } from './apps/mediaPlayer';
 import { MiniApps } from './apps/miniApps';
+import { Updater } from './apps/updater';
 import { StatusBar } from './statusbar';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
 import { TaskManagerProvider } from './views/taskManager';
@@ -17,7 +21,6 @@ import { MprisMonitor } from './sys/mpris';
 import * as audio from './sys/audio';
 import * as display from './sys/display';
 import * as mpris from './sys/mpris';
-import { open as openBrowser } from './sys/browser';
 import { log } from './log';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -36,12 +39,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // --- the tray ----------------------------------------------------------
 
+    // Contributed to both the side bar and the bottom panel under a `when` on
+    // vscodeos.flyout.location, so exactly one of these ever resolves. Both are
+    // registered because the setting can change without a reload.
     const flyout = new FlyoutProvider(context, music);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(FlyoutProvider.viewId, flyout, {
-            webviewOptions: { retainContextWhenHidden: true },
-        }),
-    );
+    for (const viewId of [FlyoutProvider.sidebarViewId, FlyoutProvider.panelViewId]) {
+        context.subscriptions.push(
+            vscode.window.registerWebviewViewProvider(viewId, flyout, {
+                webviewOptions: { retainContextWhenHidden: true },
+            }),
+        );
+    }
 
     if (config().get<boolean>('statusBar.enabled', true)) {
         const statusBar = new StatusBar(music);
@@ -64,7 +72,15 @@ export function activate(context: vscode.ExtensionContext): void {
     const panels = new AppPanels(context);
     const files = new FileExplorer(context);
     const apps = new MiniApps(panels);
-    context.subscriptions.push(panels, apps, { dispose: () => files.dispose() });
+    const player = new MediaPlayer(panels);
+    const browser = new Browser(panels);
+    const updater = new Updater(panels);
+    context.subscriptions.push(
+        panels,
+        apps,
+        browser,
+        { dispose: () => files.dispose() },
+    );
     void apps.ensureDirectories();
 
     // --- commands ----------------------------------------------------------
@@ -80,10 +96,12 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.power.logout', () => runPowerAction('logout'));
 
     register('vscodeos.calendar.show', () => flyout.show('calendar'));
-    register('vscodeos.quickSettings.show', () => flyout.show('quicksettings'));
+    register('vscodeos.power.settings', () => flyout.show('powersettings'));
     register('vscodeos.volume.show', () => flyout.show('volume'));
     register('vscodeos.network.show', () => flyout.show('network'));
+    register('vscodeos.bluetooth.show', () => flyout.show('bluetooth'));
     register('vscodeos.music.show', () => flyout.show('music'));
+    register('vscodeos.apps.menu', () => flyout.show('apps'));
 
     register('vscodeos.volume.up', () => audio.step(5));
     register('vscodeos.volume.down', () => audio.step(-5));
@@ -93,6 +111,9 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.music.next', () => mpris.next());
     register('vscodeos.music.previous', () => mpris.previous());
 
+    register('vscodeos.settings.accessibility', () =>
+        vscode.commands.executeCommand('workbench.action.openSettings', '@tag:accessibility'));
+
     register('vscodeos.files.open', () => {
         if (!config().get<boolean>('files.enabled', true)) {
             return vscode.window.showInformationMessage('The file explorer is disabled in settings.');
@@ -100,46 +121,42 @@ export function activate(context: vscode.ExtensionContext): void {
         return files.open();
     });
 
-    register('vscodeos.browser.open', async () => {
-        const homepage = config().get<string>('browser.homepage', 'https://duckduckgo.com');
-        const preferred = config().get<string>('browser.command') || undefined;
-        const url = await vscode.window.showInputBox({
-            prompt: 'Open in the web browser',
-            value: homepage,
-            valueSelection: [0, homepage.length],
-        });
-        if (!url) {
-            return;
-        }
-        const normalised = /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
-        if (!openBrowser(normalised, { preferred })) {
-            // Simple Browser ships with every VS Code build; it cannot render
-            // sites that send X-Frame-Options, but it beats doing nothing.
-            const fallback = await vscode.window.showErrorMessage(
-                'No web browser is installed.',
-                'Open in Simple Browser',
-            );
-            if (fallback) {
-                await vscode.commands.executeCommand('simpleBrowser.api.open', vscode.Uri.parse(normalised));
-            }
-        }
-    });
+    register('vscodeos.browser.open', (url?: string) => browser.open(typeof url === 'string' ? url : undefined));
 
     const appsEnabled = (): boolean => config().get<boolean>('apps.enabled', true);
-    const guard = (open: () => void) => (): void => {
+    const guard = <A extends unknown[]>(open: (...args: A) => unknown) => (...args: A): void => {
         if (!appsEnabled()) {
             void vscode.window.showInformationMessage('The built-in apps are disabled in settings.');
             return;
         }
-        open();
+        void open(...args);
     };
 
     register('vscodeos.apps.calculator', guard(() => apps.calculator()));
-    register('vscodeos.apps.notepad', guard(() => apps.notepad()));
     register('vscodeos.apps.paint', guard(() => apps.paint()));
     register('vscodeos.apps.screenshot', guard(() => apps.screenshot()));
+    register('vscodeos.apps.screenshotRegion', guard(() => apps.captureRegion()));
     register('vscodeos.apps.recorder', guard(() => apps.recorderApp()));
-    register('vscodeos.apps.menu', () => apps.menu());
+    register('vscodeos.apps.player', guard((path?: string) => player.open(path)));
+    register('vscodeos.apps.updater', () => updater.open());
+
+    // --- the Print key -----------------------------------------------------
+
+    // Openbox binds Print to /usr/local/bin/vscodeos-screenshot, which hands this
+    // URI to the running editor. Electron never sees the key itself on X11, so a
+    // contributed keybinding could not do this job.
+    context.subscriptions.push(vscode.window.registerUriHandler({
+        handleUri(uri: vscode.Uri) {
+            if (uri.path !== '/screenshot') {
+                log.debug(`ignoring unknown URI path ${uri.path}`);
+                return;
+            }
+            const mode = new URLSearchParams(uri.query).get('mode');
+            void vscode.commands.executeCommand(
+                mode === 'region' ? 'vscodeos.apps.screenshotRegion' : 'vscodeos.apps.screenshot',
+            );
+        },
+    }));
 
     log.info('VsCodeOsCore ready');
 }
