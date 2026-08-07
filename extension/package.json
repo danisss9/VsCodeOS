@@ -240,6 +240,11 @@
         "category": "VS Code OS"
       },
       {
+        "command": "vscodeos.firewall.open",
+        "title": "Firewall",
+        "category": "VS Code OS"
+      },
+      {
         "command": "vscodeos.settings.accessibility",
         "title": "Accessibility Settings",
         "category": "VS Code OS"
@@ -338,6 +343,11 @@
           "minimum": 1,
           "maximum": 110,
           "description": "Key repeats per second once a key has started repeating."
+        },
+        "vscodeos.firewall.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Firewall app, which drives ufw through a privileged helper."
         },
         "vscodeos.browser.command": {
           "type": "string",

@@ -1392,6 +1392,38 @@ audio {
     margin-left: 8px;
 }
 
+/* --------------------------------------------------------------- firewall */
+
+.firewall {
+    padding: 4px 18px 24px;
+}
+
+/* The master switch is the first thing on the page and says the one thing that
+   matters, so it gets the accent border the rest of the groups do not. */
+.firewall-master {
+    border-color: var(--vscodeos-accent);
+}
+
+.firewall-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0 8px;
+}
+
+.firewall-add .app-search {
+    flex: 1;
+    min-width: 0;
+}
+
+.firewall-presets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 8px;
+}
+
 /* --------------------------------------------- updates (a settings pane) */
 
 .update-rows {

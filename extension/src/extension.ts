@@ -13,6 +13,7 @@ import { Browser } from './apps/browser';
 import { FileExplorer } from './apps/fileExplorer';
 import { MediaPlayer } from './apps/mediaPlayer';
 import { MiniApps } from './apps/miniApps';
+import { Firewall } from './apps/firewall';
 import { SystemSettings } from './apps/systemSettings';
 import { StatusBar } from './statusbar';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
@@ -90,6 +91,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const player = new MediaPlayer(panels);
     const browser = new Browser(panels);
     const settings = new SystemSettings(panels);
+    const firewall = new Firewall(panels);
     context.subscriptions.push(
         panels,
         apps,
@@ -171,6 +173,13 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.settings.keyboard', () => settings.open('keyboard'));
     register('vscodeos.settings.sound', () => settings.open('sound'));
     register('vscodeos.settings.storage', () => settings.open('storage'));
+
+    register('vscodeos.firewall.open', () => {
+        if (!config().get<boolean>('firewall.enabled', true)) {
+            return vscode.window.showInformationMessage('The firewall app is disabled in settings.');
+        }
+        return firewall.open();
+    });
 
     // --- the Print key -----------------------------------------------------
 

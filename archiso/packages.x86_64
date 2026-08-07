@@ -67,6 +67,16 @@ ca-certificates
 # without bluez there is no bluetoothctl to ask in the first place.
 bluez
 bluez-utils
+# Packet filter for the shell's Firewall app, which drives it through
+# /usr/local/bin/vscodeos-firewall. ufw rather than firewalld because its status
+# output parses cleanly and it needs no daemon of its own; it pulls in
+# iptables-nft, which docker already brings in here anyway. Under 4 MiB
+# installed between them, which the 2 GiB asset limit will not notice.
+#
+# Shipped *disabled*: these images run sshd, and an image that silently starts
+# dropping incoming connections on first boot would be a nasty surprise. The
+# app's toggle enables both ufw and its unit.
+ufw
 
 # Web browser.
 #

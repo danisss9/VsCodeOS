@@ -91,6 +91,15 @@ export const APPS: AppDescriptor[] = [
         enabled: apps,
     },
     {
+        id: 'firewall',
+        title: 'Firewall',
+        description: 'Control what can reach this machine',
+        icon: 'shield',
+        command: 'vscodeos.firewall.open',
+        keywords: ['ufw', 'ports', 'security', 'network', 'block', 'allow'],
+        enabled: (config) => config.get<boolean>('firewall.enabled', true),
+    },
+    {
         id: 'systemSettings',
         title: 'System Settings',
         description: 'Display, keyboard, sound, storage and updates',
