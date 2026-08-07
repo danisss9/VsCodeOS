@@ -103,6 +103,10 @@ xorg-xinit
 xorg-xauth
 xorg-xrandr
 xorg-xset
+# setxkbmap, for the keyboard pane of System Settings. It changes the layout of
+# the running session; localectl writes /etc/X11/xorg.conf.d/00-keyboard.conf so
+# the next one starts with it.
+xorg-setxkbmap
 xorg-xhost
 xorg-xprop
 xorg-xkill

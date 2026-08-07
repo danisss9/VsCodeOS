@@ -13,21 +13,24 @@ accidentally uninstalled.
 | | |
 | --- | --- |
 | **Launcher** | An all-apps button in the bottom-left corner: a searchable grid of every program |
-| **Tray** | Now-playing, battery, volume, network, Bluetooth, clock and date, and the power button, at the right end of the status bar |
-| **Flyouts** | Apps, power, calendar, power settings, volume mixer, network picker, Bluetooth and music player |
+| **Tray** | Notifications, now-playing, battery, volume, network, Bluetooth, clock and date, and the power button, at the right end of the status bar |
+| **Flyouts** | Apps, power, calendar, power settings, volume mixer, network picker, Bluetooth, music player and notifications |
+| **Notifications** | Serves `org.freedesktop.Notifications`, turning every desktop notification on the machine into an editor notification |
 | **Task Manager** | Processes with CPU/RAM, per-core meters, load, uptime and thermals, in the activity bar |
-| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste. Everything opens in the editor |
+| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste, and archives that browse like folders. Everything opens in the editor |
+| **Recycle Bin** | Restore or permanently delete what the Files app trashed, from the places list or the activity bar |
 | **Browser** | A headless Chromium streamed into an editor tab, with tabs, an address bar and history |
 | **Media Player** | Video and audio in a tab, with a folder playlist |
 | **Music** | MPRIS transport for whatever is playing, plus launchers for Spotify Web and YouTube Music |
-| **Updater** | pacman, VS Code and the shell itself, with live output |
+| **System Settings** | Display, keyboard, sound devices, storage, updates and about, in one app |
+| **Firewall** | A GUI over `ufw`: master switch, default policies, rules and presets |
 | **Apps** | Calculator, Paint, Screenshot and Voice Recorder |
 
 Every feature is behind a `vscodeos.<feature>.enabled` setting, all defaulting to
 on. The all-apps button, or `VS Code OS: All Apps…` in the command palette,
 lists everything.
 
-### Three things worth knowing
+### Four things worth knowing
 
 **The flyouts are not popups.** VS Code has no API to anchor one to a status bar
 item, and the only floating-window route — moving an editor to an auxiliary
@@ -42,8 +45,25 @@ rectangle on most of them. `puppeteer-core` drives a headless Chromium, CDP's
 events go back through `Input.dispatch*`. That costs an encode and a decode per
 frame, so `vscodeos.browser.frameRate` and `vscodeos.browser.quality` are
 settings — turn them down on a Pi — the stream stops when the tab is hidden, and
-"Open in browser" is always there. `puppeteer-core` is the extension's one
-runtime dependency and is bundled into `dist/extension.js` like everything else.
+"Open in browser" is always there. `puppeteer-core` is bundled into
+`dist/extension.js` like everything else.
+
+**The shell is the notification daemon, not a listener.** Nothing on either
+image owns `org.freedesktop.Notifications`, so every `notify-send` on the
+machine used to fail silently. `dbus-monitor` would not have helped: it can
+watch traffic to a daemon but cannot answer a method call, and the problem was
+that there was no daemon. So `src/sys/notifications.ts` claims the name over
+`dbus-next` — the extension's second runtime dependency, bundled like the first
+— implements `Notify`, `CloseNotification`, `GetCapabilities` and
+`GetServerInformation`, and emits `NotificationClosed` and `ActionInvoked`. If
+something else already holds the name, it logs and walks away.
+
+`src/sys/usocket.ts` is the odd corner. dbus-next's abstract-socket branch calls
+`require('usocket')`, a native addon we do not ship, with no guard around it —
+and `vscodeos-kiosk`'s `dbus-launch` fallback produces exactly that address form,
+so the machines that needed the fallback would have been the ones where this
+quietly failed. `node:net` has handled Linux abstract sockets for years, so
+esbuild aliases `usocket` to a stub built on it.
 
 **Print Screen is bound by the window manager, not here.** On X11 the Print key
 never reaches Electron as a keydown, so a contributed keybinding cannot see it.
@@ -85,9 +105,11 @@ src/
   extension.ts     activate(): wires everything, one DisposableStore
   sys/             the only code that touches the machine
   statusbar/       the tray, and the priority ladder that orders it
-  views/           flyout (side bar) and task manager (activity bar) providers
-  apps/            registry, file explorer, browser, media player, updater,
-                   mini-apps, panel plumbing
+  views/           flyout (side bar), task manager and recycle bin (activity
+                   bar) providers
+  apps/            registry, file explorer, browser, media player, firewall,
+                   system settings (settings/updates.ts inside it), mini-apps,
+                   panel plumbing
   webview/         HTML shell + the host↔webview message types
 media/
   src/             one TypeScript entry point per page, shared code in src/lib
@@ -156,3 +178,13 @@ These are VS Code and Electron limits, not missing work:
   authentication agent in the kiosk session, so `pkexec` has nothing to prompt
   with. End task on another user's process opens a terminal with
   `sudo kill -9 <pid>` ready to run instead.
+- **Anything else that needs root goes through a helper script.** For the same
+  reason: `pkexec` only works without a prompt for programs polkit has been told
+  about by exact path. Updates, Storage Sense's system clean-up and the whole of
+  the Firewall app run through `vscodeos-update`, `vscodeos-clean` and
+  `vscodeos-firewall` in `rootfs-common/usr/local/bin/`. Each takes a fixed
+  vocabulary of words and validates its arguments; none accepts a command line,
+  because each one is a password-free path to root.
+- **Archives are read-only.** They browse like folders and extract, but nothing
+  can be added to an existing one — `bsdtar` cannot append to a zip, and
+  half-supporting it would be worse than not offering it.

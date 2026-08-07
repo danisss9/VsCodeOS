@@ -49,7 +49,21 @@
   "vscodeos.clock.dateFormat": "dd/MM/yyyy",
   "vscodeos.taskManager.enabled": true,
   "vscodeos.files.enabled": true,
+  "vscodeos.recycleBin.enabled": true,
   "vscodeos.music.enabled": true,
   "vscodeos.apps.enabled": true,
-  "vscodeos.power.confirm": true
+  "vscodeos.firewall.enabled": true,
+  "vscodeos.power.confirm": true,
+
+  // The shell serves org.freedesktop.Notifications, so notify-send and any
+  // application's notifications become editor notifications. Nothing else on
+  // either image claims that bus name; turn this off to leave it to a daemon
+  // you install yourself.
+  "vscodeos.notifications.enabled": true,
+  "vscodeos.notifications.historyLimit": 50,
+
+  // X forgets the key repeat rate with the session, so the shell reapplies
+  // these at every login.
+  "vscodeos.keyboard.repeatDelay": 500,
+  "vscodeos.keyboard.repeatRate": 25
 }
