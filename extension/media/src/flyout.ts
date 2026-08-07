@@ -1,4 +1,4 @@
-// The eight tray flyouts, drawn as one card.
+// The nine tray flyouts, drawn as one card.
 //
 // In the bottom panel the host is full width, so the card pins itself to the
 // bottom-right corner and reads as a flyout rising out of the tray item that was
@@ -7,7 +7,14 @@
 
 import { append, clear, h, onMessage, post, root, throttle, formatDuration } from './lib/dom';
 import { icon, signalIcon } from './lib/icons';
-import type { AppEntry, BluetoothDevice, FlyoutKind, FlyoutState, HostMessage } from '../../src/webview/protocol';
+import type {
+    AppEntry,
+    BluetoothDevice,
+    FlyoutKind,
+    FlyoutState,
+    HostMessage,
+    NotificationRecord,
+} from '../../src/webview/protocol';
 
 let kind: FlyoutKind = 'apps';
 let state: FlyoutState | undefined;
@@ -62,7 +69,11 @@ setInterval(() => {
 }, 1000);
 
 function render(): void {
-    card.classList.toggle('wide', kind === 'network' || kind === 'music' || kind === 'apps' || kind === 'bluetooth');
+    card.classList.toggle(
+        'wide',
+        kind === 'network' || kind === 'music' || kind === 'apps'
+        || kind === 'bluetooth' || kind === 'notifications',
+    );
     clear(card);
     switch (kind) {
         case 'apps': return renderApps();
@@ -72,6 +83,7 @@ function render(): void {
         case 'network': return renderNetwork();
         case 'bluetooth': return renderBluetooth();
         case 'music': return renderMusic();
+        case 'notifications': return renderNotifications();
         default: return renderPowerSettings();
     }
 }
@@ -325,6 +337,75 @@ function slider(
         }),
         readout,
     );
+}
+
+// ----------------------------------------------------------- notifications
+
+/** "just now", "6 min ago", "14:32" - the resolution people actually want. */
+function whenLabel(at: number, now: number): string {
+    const seconds = Math.max(0, Math.round((now - at) / 1000));
+    if (seconds < 45) {
+        return 'just now';
+    }
+    if (seconds < 3600) {
+        return `${Math.round(seconds / 60)} min ago`;
+    }
+    const date = new Date(at);
+    if (seconds < 86400) {
+        return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function notificationRow(record: NotificationRecord, now: number): HTMLElement {
+    return h('div', { class: `list-row${record.urgency === 'critical' ? ' urgent' : ''}` },
+        h('span', { html: icon(record.urgency === 'critical' ? 'warning' : 'bell', 18) }),
+        h('span', { class: 'list-main' },
+            h('div', { class: 'list-name wrap' }, record.text),
+            h('div', { class: 'list-sub' }, `${record.appName} · ${whenLabel(record.at, now)}`),
+        ),
+        h('button', {
+            class: 'icon-button',
+            title: 'Dismiss',
+            html: icon('close', 15),
+            on: { click: () => post({ type: 'dismissNotification', id: record.id }) },
+        }),
+    );
+}
+
+function renderNotifications(): void {
+    const records = state?.notifications ?? [];
+    card.append(
+        h('div', { class: 'section-head' },
+            h('span', {}, 'Notifications'),
+            records.length > 0
+                ? h('button', {
+                    class: 'link-button',
+                    on: { click: () => post({ type: 'clearNotifications' }) },
+                }, 'Clear all')
+                : null,
+        ),
+    );
+
+    if (state?.notificationsAvailable === false) {
+        // Another daemon holds the bus name, so nothing will ever land here and
+        // an empty list would look like a bug rather than a decision.
+        card.append(h('div', { class: 'empty' },
+            'Another notification daemon owns the desktop bus, so notifications go there instead.'));
+        return;
+    }
+
+    if (records.length === 0) {
+        card.append(h('div', { class: 'empty' }, 'Nothing to catch up on.'));
+        return;
+    }
+
+    const now = state?.now ?? Date.now();
+    const list = h('div', { class: 'list' });
+    for (const record of records) {
+        list.append(notificationRow(record, now));
+    }
+    card.append(list);
 }
 
 // ------------------------------------------------------------------ volume

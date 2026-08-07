@@ -377,6 +377,34 @@ input[type='range']::-webkit-slider-thumb {
     opacity: 0.8;
 }
 
+/* A critical notification, marked the way the tray marks a low battery. */
+.list-row.urgent > span:first-child {
+    color: var(--vscode-notificationsErrorIcon-foreground, var(--vscode-errorForeground));
+}
+
+/*
+ * A notification's text is the whole point of the row, so it wraps rather than
+ * being cut off at one line the way a device name is.
+ */
+.list-row .list-name.wrap {
+    white-space: normal;
+    overflow: visible;
+}
+
+/* A quiet text action in a section head: "Clear all", "Empty bin". */
+.link-button {
+    padding: 0;
+    font-size: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: var(--vscode-textLink-foreground);
+}
+
+.link-button:hover {
+    color: var(--vscode-textLink-activeForeground);
+    text-decoration: underline;
+}
+
 .empty {
     padding: 18px 4px;
     text-align: center;

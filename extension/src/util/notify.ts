@@ -76,12 +76,18 @@ export function parseActions(actions: readonly string[]): NotificationAction[] {
 /**
  * The `urgency` hint, which is a byte: 0 low, 1 normal, 2 critical.
  *
- * dbus-next unwraps variants for us, but the value still arrives as whatever
- * the sender chose to put in the variant, so anything unrecognised is normal.
+ * The hints dictionary has signature `a{sv}`, so every value arrives wrapped in
+ * a dbus-next `Variant` - hence the `.value` unwrap, done by shape rather than
+ * by importing the class so this stays testable without a session bus. Senders
+ * are not obliged to use a byte, and some use a string, so anything that is not
+ * recognisably 0 or 2 is treated as normal.
  */
 export function urgencyOf(hints: Record<string, unknown> | undefined): Urgency {
-    const value = hints?.urgency;
-    const level = typeof value === 'number' ? value : Number(value);
+    const raw = hints?.urgency;
+    const unwrapped = raw !== null && typeof raw === 'object' && 'value' in raw
+        ? (raw as { value: unknown }).value
+        : raw;
+    const level = Number(unwrapped);
     if (level === 2) {
         return 'critical';
     }

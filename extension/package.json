@@ -85,7 +85,7 @@
     "commands": [
       {
         "command": "vscodeos.power.menu",
-        "title": "Power…",
+        "title": "Power\u2026",
         "category": "VS Code OS",
         "icon": "$(vscodeos-power)"
       },
@@ -220,8 +220,18 @@
         "category": "VS Code OS"
       },
       {
+        "command": "vscodeos.notifications.show",
+        "title": "Show Notifications",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.notifications.clear",
+        "title": "Clear Notifications",
+        "category": "VS Code OS"
+      },
+      {
         "command": "vscodeos.apps.menu",
-        "title": "All Apps…",
+        "title": "All Apps\u2026",
         "category": "VS Code OS"
       }
     ],
@@ -277,6 +287,18 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the music player and its status bar transport."
+        },
+        "vscodeos.notifications.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Serve org.freedesktop.Notifications, so notify-send and other desktop notifications appear as editor notifications. Turn off to leave the bus name to another daemon."
+        },
+        "vscodeos.notifications.historyLimit": {
+          "type": "number",
+          "default": 50,
+          "minimum": 5,
+          "maximum": 500,
+          "description": "How many notifications the notification centre keeps."
         },
         "vscodeos.browser.command": {
           "type": "string",
@@ -352,6 +374,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "dbus-next": "^0.10.2",
     "puppeteer-core": "^25.5.0"
   }
 }

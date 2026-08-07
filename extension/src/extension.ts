@@ -18,6 +18,7 @@ import { StatusBar } from './statusbar';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
 import { TaskManagerProvider } from './views/taskManager';
 import { MprisMonitor } from './sys/mpris';
+import { NotificationServer } from './sys/notifications';
 import * as audio from './sys/audio';
 import * as display from './sys/display';
 import * as mpris from './sys/mpris';
@@ -37,12 +38,25 @@ export function activate(context: vscode.ExtensionContext): void {
         music.startWatching();
     }
 
+    // --- notifications -----------------------------------------------------
+    //
+    // Started early: nothing else owns org.freedesktop.Notifications on either
+    // image, and until this claims it every notify-send on the machine fails.
+    const notifications = new NotificationServer(
+        String(context.extension.packageJSON.version ?? '1.0.0'),
+        config().get<number>('notifications.historyLimit', 50),
+    );
+    context.subscriptions.push({ dispose: () => notifications.dispose() });
+    if (config().get<boolean>('notifications.enabled', true)) {
+        void notifications.start();
+    }
+
     // --- the tray ----------------------------------------------------------
 
     // Contributed to both the side bar and the bottom panel under a `when` on
     // vscodeos.flyout.location, so exactly one of these ever resolves. Both are
     // registered because the setting can change without a reload.
-    const flyout = new FlyoutProvider(context, music);
+    const flyout = new FlyoutProvider(context, music, notifications);
     for (const viewId of [FlyoutProvider.sidebarViewId, FlyoutProvider.panelViewId]) {
         context.subscriptions.push(
             vscode.window.registerWebviewViewProvider(viewId, flyout, {
@@ -52,7 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     if (config().get<boolean>('statusBar.enabled', true)) {
-        const statusBar = new StatusBar(music);
+        const statusBar = new StatusBar(music, notifications);
         statusBar.start();
         context.subscriptions.push(statusBar);
     }
@@ -102,6 +116,8 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.bluetooth.show', () => flyout.show('bluetooth'));
     register('vscodeos.music.show', () => flyout.show('music'));
     register('vscodeos.apps.menu', () => flyout.show('apps'));
+    register('vscodeos.notifications.show', () => flyout.show('notifications'));
+    register('vscodeos.notifications.clear', () => notifications.clear());
 
     register('vscodeos.volume.up', () => audio.step(5));
     register('vscodeos.volume.down', () => audio.step(-5));
