@@ -67,5 +67,23 @@ polkit.addRule(function (action, subject) {
         return polkit.Result.YES;
     }
 
+    /* The Firewall app, which runs `pkexec /usr/local/bin/vscodeos-firewall`.
+       ufw needs root even to read its status, so this is on the read path too
+       and not only on writes. That script takes a fixed vocabulary and one
+       argument it checks against a pattern - and, for application profiles,
+       against `ufw app list` - before ufw ever sees it. */
+    if (action.id === "org.freedesktop.policykit.exec"
+        && action.lookup("program") === "/usr/local/bin/vscodeos-firewall") {
+        return polkit.Result.YES;
+    }
+
+    /* The keyboard pane of System Settings, which persists a layout with
+       `localectl set-x11-keymap`. A named systemd action rather than a program
+       of ours: localed validates the keymap itself, and the alternative would
+       have been a third script writing to /etc/X11. */
+    if (action.id === "org.freedesktop.locale1.set-keyboard") {
+        return polkit.Result.YES;
+    }
+
     return polkit.Result.NOT_HANDLED;
 });

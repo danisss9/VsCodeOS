@@ -34,6 +34,10 @@ curl
 ca-certificates
 bluez
 bluez-utils
+# Packet filter for the shell's Firewall app; see the note in
+# archiso/packages.x86_64. Shipped disabled - this image runs sshd too, and a Pi
+# is usually the machine being administered over the network.
+ufw
 
 # Web browser for the desktop shell's browser launcher and its music player.
 # Microsoft publishes no ARM64 Linux build of Edge, so Chromium is the only

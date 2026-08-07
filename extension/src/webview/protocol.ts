@@ -9,6 +9,7 @@ import type { BatteryState } from '../sys/battery';
 import type { BluetoothState } from '../sys/bluetooth';
 import type { NetworkState } from '../sys/network';
 import type { DisplayOutput, Rotation } from '../sys/display';
+import type { FirewallPolicy, FirewallStatus } from '../sys/firewall';
 import type { KeyboardState, RepeatRate } from '../sys/keyboard';
 import type { NowPlaying } from '../sys/mpris';
 import type { NotificationRecord } from '../sys/notifications';
@@ -23,6 +24,7 @@ export type { BatteryState } from '../sys/battery';
 export type { BluetoothState, BluetoothDevice } from '../sys/bluetooth';
 export type { NetworkState, AccessPoint, Connection } from '../sys/network';
 export type { DisplayOutput, DisplayMode, Rotation } from '../sys/display';
+export type { FirewallStatus, FirewallRule, FirewallPolicy } from '../sys/firewall';
 export type { KeyboardState, KeyboardLayout, RepeatRate } from '../sys/keyboard';
 export type { NowPlaying } from '../sys/mpris';
 export type { NotificationRecord } from '../sys/notifications';
@@ -69,6 +71,18 @@ export interface FlyoutState {
     notifications?: NotificationRecord[];
     /** False when another daemon owns the bus name, so nothing will ever arrive. */
     notificationsAvailable?: boolean;
+}
+
+export interface FirewallState {
+    /** False when ufw is not on this machine at all. */
+    installed: boolean;
+    /** False when there is no pkexec, so nothing privileged can be run. */
+    canElevate: boolean;
+    busy: boolean;
+    /** Absent when the status could not be read. */
+    status?: FirewallStatus;
+    /** Whether anything is listening on port 22, for the lock-yourself-out warning. */
+    sshListening?: boolean;
 }
 
 /** The panes of the System Settings app, in rail order. */
@@ -165,6 +179,10 @@ export type HostMessage =
     | { type: 'browserFrame'; data: string; width: number; height: number }
     | { type: 'browserState'; state: BrowserState }
     | { type: 'browserError'; message: string; fatal?: boolean }
+    // firewall
+    | { type: 'firewall'; state: FirewallState }
+    | { type: 'firewallLog'; chunk: string }
+    | { type: 'firewallBusy'; busy: boolean }
     // system settings
     | { type: 'settings'; state: SettingsState }
     | { type: 'settingsBusy'; label?: string }
@@ -241,6 +259,14 @@ export type WebviewMessage =
     | { type: 'browserInput'; input: BrowserInput }
     | { type: 'browserTab'; action: 'new' | 'close' | 'select'; id?: string }
     | { type: 'browserExternal' }
+    // firewall
+    | { type: 'firewallRefresh' }
+    | { type: 'firewallToggle'; enabled: boolean }
+    | { type: 'firewallPolicy'; direction: 'incoming' | 'outgoing'; policy: FirewallPolicy }
+    | { type: 'firewallRule'; action: 'allow' | 'deny' | 'limit'; spec: string }
+    | { type: 'firewallDelete'; number: number; label: string }
+    | { type: 'firewallLogging'; enabled: boolean }
+    | { type: 'firewallReset' }
     // system settings
     | { type: 'settingsSection'; section: SettingsSection }
     | { type: 'cleanStorage'; ids: CleanupId[] }
