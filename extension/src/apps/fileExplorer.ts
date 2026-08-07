@@ -15,14 +15,43 @@ import * as vscode from 'vscode';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as archive from '../sys/archive';
 import { openWithDefaultApp } from '../sys/browser';
 import { output } from '../sys/exec';
+import { archiveBaseName, archiveKind, isMultiFileArchive } from '../util/archive';
 import { TRASH_PATH, uniqueName } from '../sys/trash';
 import type { TrashService } from '../sys/trash';
 import { render, webviewOptions } from '../webview/html';
 import { mediaKind } from '../util/media';
 import type { FileEntry, Place, WebviewMessage } from '../webview/protocol';
 import { log } from '../log';
+
+/**
+ * The virtual path an archive is browsed at: the archive's own path, a bang,
+ * then the directory inside it. The same trick the Recycle Bin uses - the host
+ * intercepts it, so the page needs no idea that an archive is not a folder.
+ */
+const ARCHIVE_SCHEME = 'archive://';
+
+function archiveLocation(target: string): { file: string; inner: string } | undefined {
+    if (!target.startsWith(ARCHIVE_SCHEME)) {
+        return undefined;
+    }
+    const rest = target.slice(ARCHIVE_SCHEME.length);
+    const bang = rest.indexOf('!');
+    return bang < 0
+        ? { file: rest, inner: '' }
+        : { file: rest.slice(0, bang), inner: rest.slice(bang + 1) };
+}
+
+function archivePath(file: string, inner: string): string {
+    return `${ARCHIVE_SCHEME}${file}!${inner}`;
+}
+
+/** Messages whose paths must be real files on disk. */
+const WRITES_TO_DISK: ReadonlySet<WebviewMessage['type']> = new Set<WebviewMessage['type']>([
+    'newFolder', 'newFile', 'rename', 'delete', 'paste', 'clipboard',
+]);
 
 export class FileExplorer {
     private panel: vscode.WebviewPanel | undefined;
@@ -70,6 +99,12 @@ export class FileExplorer {
     private async list(target: string, error?: string): Promise<void> {
         if (target === TRASH_PATH) {
             await this.listTrash(error);
+            return;
+        }
+
+        const inside = archiveLocation(target);
+        if (inside) {
+            await this.listArchive(inside.file, inside.inner, error);
             return;
         }
 
@@ -134,8 +169,45 @@ export class FileExplorer {
         this.post({ type: 'files', path: TRASH_PATH, entries, places: await places(), error });
     }
 
+    /**
+     * One level of an archive. Read-only: adding to an existing archive is not
+     * something bsdtar can do for zip, and half-supporting it would be worse
+     * than not offering it.
+     */
+    private async listArchive(file: string, inner: string, error?: string): Promise<void> {
+        this.currentPath = archivePath(file, inner);
+        const items = await archive.listDirectory(file, inner);
+        const entries: FileEntry[] = items.map((item) => ({
+            name: path.posix.basename(item.path),
+            path: item.isDirectory ? archivePath(file, item.path) : archivePath(file, item.path),
+            isDirectory: item.isDirectory,
+            isSymlink: false,
+            size: item.size,
+            modified: 0,
+            hidden: path.posix.basename(item.path).startsWith('.'),
+        }));
+        this.post({
+            type: 'files',
+            path: this.currentPath,
+            entries,
+            places: await places(),
+            error: error ?? (entries.length === 0 && !inner ? 'This archive is empty or could not be read.' : undefined),
+        });
+    }
+
     private async handle(message: WebviewMessage): Promise<void> {
         try {
+            // The Recycle Bin and archive listings are virtual: their entry
+            // paths are keys, not files. The page hides the actions that would
+            // write to them, but a keyboard shortcut must not reach fs.rm with
+            // "archive://..." either.
+            if (WRITES_TO_DISK.has(message.type) && this.currentPath.startsWith(ARCHIVE_SCHEME)) {
+                void vscode.window.showInformationMessage(
+                    'An archive is read-only here. Extract it first to change what is inside.',
+                );
+                return;
+            }
+
             switch (message.type) {
                 case 'ready':
                     await this.list(this.currentPath);
@@ -154,11 +226,26 @@ export class FileExplorer {
                         );
                         return;
                     }
+                    const inside = archiveLocation(message.path);
+                    if (inside) {
+                        await this.openArchiveMember(inside.file, inside.inner);
+                        return;
+                    }
+
                     const stat = await fs.stat(message.path);
                     if (stat.isDirectory()) {
                         await this.list(message.path);
                         return;
                     }
+
+                    const kind = archiveKind(message.path);
+                    if (kind && isMultiFileArchive(kind) && archive.isAvailable()) {
+                        // Browse it rather than handing the editor a wall of
+                        // binary, which is what vscode.open would show.
+                        await this.list(archivePath(message.path, ''));
+                        return;
+                    }
+
                     if (mediaKind(message.path)) {
                         await vscode.commands.executeCommand('vscodeos.apps.player', message.path);
                         return;
@@ -166,6 +253,14 @@ export class FileExplorer {
                     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(message.path));
                     return;
                 }
+
+                case 'extract':
+                    await this.extract(message.paths, message.chooseTarget);
+                    return;
+
+                case 'compress':
+                    await this.compress(message.paths);
+                    return;
 
                 case 'openExternal':
                     if (!openWithDefaultApp(message.path)) {
@@ -313,6 +408,104 @@ export class FileExplorer {
             void vscode.window.showErrorMessage(detail);
             await this.list(this.currentPath);
         }
+    }
+
+    /** Pull one member out to a temp file so the editor has a real path to open. */
+    private async openArchiveMember(file: string, member: string): Promise<void> {
+        const extracted = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Extracting ${path.posix.basename(member)}…` },
+            () => archive.extractOne(file, member),
+        );
+        if (!extracted) {
+            void vscode.window.showErrorMessage(`Could not extract ${member} from the archive.`);
+            return;
+        }
+        if (mediaKind(extracted)) {
+            await vscode.commands.executeCommand('vscodeos.apps.player', extracted);
+            return;
+        }
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(extracted));
+    }
+
+    /**
+     * Unpack archives next to themselves, into a folder named after the archive
+     * so a tarball with no top-level directory does not spray its contents over
+     * whatever was already there.
+     */
+    private async extract(paths: string[], chooseTarget: boolean): Promise<void> {
+        const archives = paths.filter((file) => archiveKind(file) !== undefined);
+        if (archives.length === 0) {
+            void vscode.window.showInformationMessage('Nothing selected that looks like an archive.');
+            return;
+        }
+
+        let base: string | undefined;
+        if (chooseTarget) {
+            const picked = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                defaultUri: vscode.Uri.file(path.dirname(archives[0])),
+                openLabel: 'Extract here',
+            });
+            base = picked?.[0]?.fsPath;
+            if (!base) {
+                return;
+            }
+        }
+
+        const channel = this.progress();
+        for (const file of archives) {
+            const destination = await uniqueName(
+                path.join(base ?? path.dirname(file), archiveBaseName(file)),
+            );
+            await fs.mkdir(destination, { recursive: true });
+            const result = await archive.extract(file, destination, channel);
+            if (!result.ok) {
+                void vscode.window.showErrorMessage(`Could not extract ${path.basename(file)}: ${result.message}`);
+            }
+        }
+        await this.list(this.currentPath);
+    }
+
+    private async compress(paths: string[]): Promise<void> {
+        if (paths.length === 0) {
+            return;
+        }
+        const suggested = paths.length === 1
+            ? `${path.basename(paths[0]).replace(/\.[^.]+$/, '')}.zip`
+            : `${path.basename(path.dirname(paths[0])) || 'archive'}.zip`;
+
+        const name = await vscode.window.showInputBox({
+            prompt: 'Name for the new archive',
+            value: suggested,
+            valueSelection: [0, suggested.lastIndexOf('.')],
+        });
+        if (!name) {
+            return;
+        }
+        if (!archiveKind(name)) {
+            void vscode.window.showErrorMessage(
+                `"${name}" has no archive extension. Try .zip, .tar.gz or .tar.xz.`,
+            );
+            return;
+        }
+
+        const destination = await uniqueName(path.join(path.dirname(paths[0]), name));
+        const result = await archive.compress(paths, destination, this.progress());
+        if (!result.ok) {
+            void vscode.window.showErrorMessage(`Could not create the archive: ${result.message}`);
+        }
+        await this.list(this.currentPath);
+    }
+
+    /**
+     * Archive work streams into the output channel rather than a log pane: the
+     * Files app has nowhere to put one, and the interesting case is a failure
+     * the user then wants to read.
+     */
+    private progress(): (chunk: string) => void {
+        return (chunk) => log.info(chunk.trimEnd());
     }
 
     private async deleteFromTrash(names: string[]): Promise<void> {

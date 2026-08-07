@@ -15,7 +15,14 @@ import { describe, it } from 'node:test';
 
 import { evaluate, isError } from '../media/src/lib/calc';
 import { expandHome, formatBytes, formatDate, formatDuration, formatElapsed, formatTime } from '../src/util/format';
-import { archiveBaseName, archiveKind, isMultiFileArchive } from '../src/util/archive';
+import {
+    archiveBaseName,
+    archiveKind,
+    entriesInDirectory,
+    isMultiFileArchive,
+    parseArchiveListing,
+    parseUnzipListing,
+} from '../src/util/archive';
 import { mediaFilterExtensions, mediaKind } from '../src/util/media';
 import { notificationText, parseActions, stripNotificationMarkup, urgencyOf } from '../src/util/notify';
 import {
@@ -312,6 +319,104 @@ describe('archive classification', () => {
         assert.equal(archiveBaseName('notes.txt.gz'), 'notes.txt');
         assert.equal(archiveBaseName('/tmp/a/b.zip'), 'b');
         assert.equal(archiveBaseName('plain'), 'plain');
+    });
+});
+
+describe('archive listings', () => {
+    // Captured from GNU tar, which packs owner and group into one column.
+    const gnuTar = [
+        'drwxr-xr-x root/root         0 2026-08-07 19:51 ./',
+        'drwxr-xr-x root/root         0 2026-08-07 19:51 ./dir with space/',
+        '-rw-r--r-- root/root         2 2026-08-07 19:51 ./dir with space/c d.txt',
+        'drwxr-xr-x root/root         0 2026-08-07 19:51 ./sub/',
+        '-rw-r--r-- root/root         6 2026-08-07 19:51 ./sub/b.txt',
+        '-rw-r--r-- root/root         6 2026-08-07 19:51 ./a.txt',
+    ].join('\n');
+
+    // bsdtar, which is what both images actually have: ls-style columns, a
+    // month-and-day date, and a year instead of a time for anything old.
+    const bsdTar = [
+        'drwxr-xr-x  0 dan    dan         0 Aug  7 19:51 sub/',
+        '-rw-r--r--  0 dan    dan         6 Aug  7 19:51 sub/b.txt',
+        '-rw-r--r--  0 dan    dan       142 Jan 14  2024 old notes.txt',
+        '-rw-r--r--  0 dan    dan         6 Aug  7 19:51 a.txt',
+    ].join('\n');
+
+    it('reads GNU tar rows, stripping the leading ./', () => {
+        const entries = parseArchiveListing(gnuTar);
+        assert.deepEqual(entries.map((e) => e.path), [
+            'dir with space', 'dir with space/c d.txt', 'sub', 'sub/b.txt', 'a.txt',
+        ]);
+    });
+
+    it('reads bsdtar rows, including a year in place of a time', () => {
+        const entries = parseArchiveListing(bsdTar);
+        assert.deepEqual(entries.map((e) => e.path), ['sub', 'sub/b.txt', 'old notes.txt', 'a.txt']);
+        assert.equal(entries[2].size, 142);
+    });
+
+    it('keeps names containing spaces intact', () => {
+        const entries = parseArchiveListing(gnuTar);
+        const entry = entries.find((e) => e.path.endsWith('c d.txt'));
+        assert.equal(entry?.path, 'dir with space/c d.txt');
+        assert.equal(entry?.size, 2);
+    });
+
+    it('marks directories from the permission bit and the trailing slash alike', () => {
+        const entries = parseArchiveListing(gnuTar);
+        assert.equal(entries.find((e) => e.path === 'sub')?.isDirectory, true);
+        assert.equal(entries.find((e) => e.path === 'sub/b.txt')?.isDirectory, false);
+    });
+
+    it('drops entries that would escape the extraction directory', () => {
+        const hostile = [
+            '-rw-r--r-- root/root        1 2026-08-07 19:51 ../../etc/passwd',
+            '-rw-r--r-- root/root        1 2026-08-07 19:51 /etc/shadow',
+            '-rw-r--r-- root/root        1 2026-08-07 19:51 ok.txt',
+        ].join('\n');
+        assert.deepEqual(parseArchiveListing(hostile).map((e) => e.path), ['ok.txt']);
+    });
+
+    it('ignores headers, summaries and empty output', () => {
+        assert.deepEqual(parseArchiveListing('Archive: t.zip\ntotal 4'), []);
+        assert.deepEqual(parseArchiveListing(undefined), []);
+        assert.deepEqual(parseArchiveListing(''), []);
+    });
+
+    it('reads unzip -l, headers and footers and all', () => {
+        // Captured from unzip -l.
+        const listing = [
+            'Archive:  t.zip',
+            '  Length      Date    Time    Name',
+            '---------  ---------- -----   ----',
+            '        0  2026-08-07 19:51   dir with space/',
+            '        2  2026-08-07 19:51   dir with space/c d.txt',
+            '        6  2026-08-07 19:51   a.txt',
+            '---------                     -------',
+            '       14                     5 files',
+        ].join('\n');
+        const entries = parseUnzipListing(listing);
+        assert.deepEqual(entries.map((e) => e.path), ['dir with space', 'dir with space/c d.txt', 'a.txt']);
+        assert.equal(entries[0].isDirectory, true);
+        assert.equal(entries[2].size, 6);
+    });
+
+    it('folds a flat listing down to one directory level', () => {
+        const entries = parseArchiveListing(gnuTar);
+        assert.deepEqual(entriesInDirectory(entries, '').map((e) => e.path), ['dir with space', 'sub', 'a.txt']);
+        assert.deepEqual(entriesInDirectory(entries, 'sub').map((e) => e.path), ['sub/b.txt']);
+    });
+
+    it('invents directories the archive never stored', () => {
+        // A zip built from a file list has no entry for "docs" at all.
+        const sparse = parseArchiveListing([
+            '-rw-r--r-- root/root        1 2026-08-07 19:51 docs/deep/a.txt',
+            '-rw-r--r-- root/root        1 2026-08-07 19:51 docs/b.txt',
+        ].join('\n'));
+        const top = entriesInDirectory(sparse, '');
+        assert.deepEqual(top.map((e) => e.path), ['docs']);
+        assert.equal(top[0].isDirectory, true);
+        assert.deepEqual(entriesInDirectory(sparse, 'docs').map((e) => e.path), ['docs/deep', 'docs/b.txt']);
     });
 });
 
