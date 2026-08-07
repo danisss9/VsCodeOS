@@ -71,6 +71,13 @@
           "name": "Task Manager",
           "icon": "media/icons/system.svg",
           "when": "config.vscodeos.taskManager.enabled"
+        },
+        {
+          "type": "webview",
+          "id": "vscodeos.recycleBin",
+          "name": "Recycle Bin",
+          "icon": "media/icons/recyclebin.svg",
+          "when": "config.vscodeos.recycleBin.enabled"
         }
       ],
       "vscodeos-flyout": [
@@ -240,6 +247,11 @@
         "category": "VS Code OS"
       },
       {
+        "command": "vscodeos.recycleBin.open",
+        "title": "Recycle Bin",
+        "category": "VS Code OS"
+      },
+      {
         "command": "vscodeos.firewall.open",
         "title": "Firewall",
         "category": "VS Code OS"
@@ -312,6 +324,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the graphical file explorer."
+        },
+        "vscodeos.recycleBin.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Recycle Bin view in the activity bar. The Files app lists it as a place either way."
         },
         "vscodeos.music.enabled": {
           "type": "boolean",
