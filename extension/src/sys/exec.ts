@@ -56,9 +56,16 @@ export async function output(command: string, args: string[] = [], timeout?: num
     return result.ok ? result.stdout.trim() : undefined;
 }
 
-/** Start a long-lived process and hand back the handle (recorder, playerctl --follow). */
-export function start(command: string, args: string[] = []): ChildProcess {
-    return spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+/**
+ * Start a long-lived process and hand back the handle (recorder,
+ * playerctl --follow, pkexec of a helper).
+ *
+ * `cwd` exists for the handful of tools with no equivalent of tar's -C; it is
+ * still a real directory handed to spawn, not a shell doing a `cd`, so the
+ * no-shell rule at the top of this file holds.
+ */
+export function start(command: string, args: string[] = [], options: { cwd?: string } = {}): ChildProcess {
+    return spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: options.cwd });
 }
 
 const whichCache = new Map<string, string | undefined>();

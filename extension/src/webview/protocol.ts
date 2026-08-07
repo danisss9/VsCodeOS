@@ -238,6 +238,8 @@ export type WebviewMessage =
     | { type: 'restoreFromTrash'; paths: string[] }
     | { type: 'deleteFromTrash'; paths: string[] }
     | { type: 'emptyTrash' }
+    | { type: 'extract'; paths: string[]; chooseTarget: boolean }
+    | { type: 'compress'; paths: string[] }
     | { type: 'clipboard'; paths: string[]; cut: boolean }
     | { type: 'paste'; target: string }
     | { type: 'revealInSidebar'; path: string }

@@ -2,6 +2,7 @@
 
 import { append, clear, formatBytes, h, onMessage, post, root, vscode } from './lib/dom';
 import { icon } from './lib/icons';
+import { archiveKind } from '../../src/util/archive';
 import type { FileEntry, HostMessage, Place } from '../../src/webview/protocol';
 
 interface Persisted {
@@ -40,9 +41,31 @@ const forwardButton = iconButton('chevronRight', 'Forward', () => go(1));
 const TRASH_PATH = 'trash://';
 const inTrash = (): boolean => currentPath === TRASH_PATH;
 
+/** "archive:///home/me/photos.zip!sub/dir" - the host owns the meaning. */
+const ARCHIVE_SCHEME = 'archive://';
+const inArchive = (): boolean => currentPath.startsWith(ARCHIVE_SCHEME);
+/** True where the current folder cannot be written to: the bin, or an archive. */
+const readOnly = (): boolean => inTrash() || inArchive();
+
 const newFolderButton = iconButton('plus', 'New folder', () => post({ type: 'newFolder', path: currentPath }));
 const newFileButton = iconButton('file', 'New file', () => post({ type: 'newFile', path: currentPath }));
 const emptyBinButton = iconButton('trash', 'Empty the Recycle Bin', () => post({ type: 'emptyTrash' }));
+const extractAllButton = iconButton('archive', 'Extract everything', () => {
+    const file = archiveFile();
+    if (file) {
+        post({ type: 'extract', paths: [file], chooseTarget: true });
+    }
+});
+
+/** The archive's own path, out of the virtual path currently being browsed. */
+function archiveFile(): string | undefined {
+    if (!inArchive()) {
+        return undefined;
+    }
+    const rest = currentPath.slice(ARCHIVE_SCHEME.length);
+    const bang = rest.indexOf('!');
+    return bang < 0 ? rest : rest.slice(0, bang);
+}
 
 clear(root()).append(h('div', { class: 'app' },
     h('div', { class: 'toolbar' },
@@ -57,6 +80,7 @@ clear(root()).append(h('div', { class: 'app' },
         newFolderButton,
         newFileButton,
         emptyBinButton,
+        extractAllButton,
         iconButton(view === 'grid' ? 'list' : 'grid', 'Switch view', () => {
             view = view === 'grid' ? 'list' : 'grid';
             persist();
@@ -101,10 +125,11 @@ onMessage<HostMessage>((message) => {
     forwardButton.disabled = historyIndex >= history.length - 1;
 
     const trash = inTrash();
-    newFolderButton.hidden = trash;
-    newFileButton.hidden = trash;
+    newFolderButton.hidden = readOnly();
+    newFileButton.hidden = readOnly();
     emptyBinButton.hidden = !trash;
     emptyBinButton.disabled = entries.length === 0;
+    extractAllButton.hidden = !inArchive();
 
     renderPlaces();
     renderBreadcrumb();
@@ -151,6 +176,32 @@ function renderBreadcrumb(): void {
         // "trash://" has no path segments to split on, and splitting it would
         // produce a "trash:" crumb that navigates nowhere.
         breadcrumb.append(h('span', { class: 'crumb' }, 'Recycle Bin'));
+        return;
+    }
+
+    if (inArchive()) {
+        const file = archiveFile() ?? '';
+        const inner = currentPath.slice(ARCHIVE_SCHEME.length + file.length + 1);
+        // The archive is a file, so its crumb leaves the archive rather than
+        // navigating deeper into a path that no longer exists.
+        breadcrumb.append(h('button', {
+            class: 'crumb',
+            on: { click: () => navigate(file.replace(/\/[^/]+$/, '') || '/') },
+        }, h('span', { html: icon('archive', 14) })));
+        breadcrumb.append(h('button', {
+            class: 'crumb',
+            on: { click: () => navigate(`${ARCHIVE_SCHEME}${file}!`) },
+        }, file.slice(file.lastIndexOf('/') + 1)));
+
+        let accumulated = '';
+        for (const part of inner.split('/').filter(Boolean)) {
+            accumulated = accumulated ? `${accumulated}/${part}` : part;
+            const target = accumulated;
+            breadcrumb.append(h('button', {
+                class: 'crumb',
+                on: { click: () => navigate(`${ARCHIVE_SCHEME}${file}!${target}`) },
+            }, part));
+        }
         return;
     }
 
@@ -226,7 +277,7 @@ function renderFiles(): void {
                         post(inTrash()
                             ? { type: 'deleteFromTrash', paths: [entry.path] }
                             : { type: 'delete', paths: [entry.path] });
-                    } else if (event.key === 'F2' && !inTrash()) {
+                    } else if (event.key === 'F2' && !readOnly()) {
                         post({ type: 'rename', path: entry.path });
                     }
                 }) as (event: never) => void,
@@ -293,23 +344,47 @@ function showMenu(event: MouseEvent, entry: FileEntry): void {
         h('button', { class: 'list-row', on: { click: () => { menu.remove(); action(); } } },
             h('span', { html: icon(glyph, 15) }), h('span', { class: 'list-name' }, label));
 
-    const items = inTrash()
-        ? [
+    const archives = paths.filter((candidate) => archiveKind(candidate) !== undefined);
+
+    let items: HTMLElement[];
+    if (inTrash()) {
+        items = [
             item('Restore', 'undo', () => post({ type: 'restoreFromTrash', paths })),
             item('Delete permanently', 'trash', () => post({ type: 'deleteFromTrash', paths })),
             item('Empty Recycle Bin', 'close', () => post({ type: 'emptyTrash' })),
-        ]
-        : [
+        ];
+    } else if (inArchive()) {
+        // Nothing inside an archive can be renamed, moved or deleted in place.
+        const file = archiveFile();
+        items = [
+            item(entry.isDirectory ? 'Open' : 'Open a copy', 'open', () =>
+                entry.isDirectory ? navigate(entry.path) : post({ type: 'openFile', path: entry.path })),
+            file
+                ? item('Extract everything…', 'archive', () =>
+                    post({ type: 'extract', paths: [file], chooseTarget: true }))
+                : null,
+        ].filter((node): node is HTMLElement => node !== null);
+    } else {
+        items = [
             item(entry.isDirectory ? 'Open' : 'Open in editor', 'open', () =>
                 entry.isDirectory ? navigate(entry.path) : post({ type: 'openFile', path: entry.path })),
             item('Open with default app', 'globe', () => post({ type: 'openExternal', path: entry.path })),
             item('Reveal in sidebar', 'editor', () => post({ type: 'revealInSidebar', path: entry.path })),
+            archives.length > 0
+                ? item('Extract here', 'archive', () => post({ type: 'extract', paths: archives, chooseTarget: false }))
+                : null,
+            archives.length > 0
+                ? item('Extract to…', 'archive', () => post({ type: 'extract', paths: archives, chooseTarget: true }))
+                : null,
+            item(paths.length > 1 ? `Compress ${paths.length} items` : 'Compress', 'archive', () =>
+                post({ type: 'compress', paths })),
             item('Copy', 'file', () => post({ type: 'clipboard', paths, cut: false })),
             item('Cut', 'file', () => post({ type: 'clipboard', paths, cut: true })),
             item('Paste here', 'save', () => post({ type: 'paste', target: currentPath })),
             item('Rename', 'editor', () => post({ type: 'rename', path: entry.path })),
             item('Delete', 'trash', () => post({ type: 'delete', paths })),
-        ];
+        ].filter((node): node is HTMLElement => node !== null);
+    }
 
     // Clamped to the menu's own height rather than a constant tuned to one
     // length: the bin's menu is three rows and the ordinary one is eight.
@@ -335,6 +410,11 @@ function showMenu(event: MouseEvent, entry: FileEntry): void {
 }
 
 function glyphFor(name: string): string {
+    // Checked first, because archiveKind understands the double extensions the
+    // last-dot rule below gets wrong - ".tar.gz" is not a ".gz".
+    if (archiveKind(name)) {
+        return 'archive';
+    }
     const extension = name.slice(name.lastIndexOf('.')).toLowerCase();
     if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'].includes(extension)) {
         return 'image';
@@ -345,14 +425,15 @@ function glyphFor(name: string): string {
     if (['.mp4', '.mkv', '.webm', '.mov', '.avi'].includes(extension)) {
         return 'video';
     }
-    if (['.zip', '.gz', '.xz', '.bz2', '.7z', '.tar', '.zst'].includes(extension)) {
-        return 'disk';
-    }
     return 'file';
 }
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Delete' && selection.size > 0) {
+        if (inArchive()) {
+            // Members cannot be removed from an archive in place.
+            return;
+        }
         post(inTrash()
             ? { type: 'deleteFromTrash', paths: [...selection] }
             : { type: 'delete', paths: [...selection] });
