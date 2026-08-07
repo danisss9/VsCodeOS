@@ -1,5 +1,5 @@
 // The flyouts: apps, power, calendar, power settings, volume, network,
-// bluetooth and music.
+// bluetooth, music and notifications.
 //
 // A VS Code extension cannot draw a popup anchored to a status bar item - there
 // is no such API, and the only floating-window route (moving an editor to an
@@ -245,6 +245,21 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
 
             case 'sink':
                 await audio.setDefaultSink(message.id);
+                await this.refresh();
+                return;
+
+            case 'source':
+                await audio.setDefaultSource(message.id);
+                await this.refresh();
+                return;
+
+            case 'micVolume':
+                await audio.setInputVolume(message.value);
+                await this.refresh();
+                return;
+
+            case 'micMute':
+                await audio.toggleInputMute();
                 await this.refresh();
                 return;
 

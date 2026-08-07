@@ -1,4 +1,4 @@
-// Volume, mute and device selection.
+// Volume, mute and device selection, for the speakers and the microphone alike.
 //
 // wpctl (wireplumber) is the native control surface for the PipeWire stack both
 // images ship. pactl is kept as a fallback so the extension is also usable on a
@@ -18,9 +18,12 @@ export interface AudioState {
     muted: boolean;
     sinks: AudioDevice[];
     sources: AudioDevice[];
+    /** The default microphone's gain and mute, absent when there is no input. */
+    input?: VolumeLevel;
 }
 
 const SINK = '@DEFAULT_AUDIO_SINK@';
+const SOURCE = '@DEFAULT_AUDIO_SOURCE@';
 
 function backend(): 'wpctl' | 'pactl' | undefined {
     if (which('wpctl')) {
@@ -42,25 +45,28 @@ export async function getState(): Promise<AudioState> {
         const text = await output('wpctl', ['get-volume', SINK]);
         // "Volume: 0.65" or "Volume: 0.65 [MUTED]"
         const match = text ? /Volume:\s*([\d.]+)/.exec(text) : undefined;
-        const { sinks, sources } = await readWpctlDevices();
+        const [{ sinks, sources }, input] = await Promise.all([readWpctlDevices(), getInputLevel()]);
         return {
             available: true,
             volume: match ? Math.round(Number(match[1]) * 100) : 0,
             muted: text !== undefined && text.includes('[MUTED]'),
             sinks,
             sources,
+            input: input.available ? input : undefined,
         };
     }
 
     const volumeText = await output('pactl', ['get-sink-volume', '@DEFAULT_SINK@']);
     const muteText = await output('pactl', ['get-sink-mute', '@DEFAULT_SINK@']);
     const percent = volumeText ? /(\d+)%/.exec(volumeText) : undefined;
+    const input = await getInputLevel();
     return {
         available: true,
         volume: percent ? Number(percent[1]) : 0,
         muted: muteText?.includes('yes') ?? false,
         sinks: await readPactlDevices('sinks'),
         sources: await readPactlDevices('sources'),
+        input: input.available ? input : undefined,
     };
 }
 
@@ -129,6 +135,68 @@ export async function setDefaultSink(id: string): Promise<void> {
         await run('wpctl', ['set-default', id]);
     } else if (which('pactl')) {
         await run('pactl', ['set-default-sink', id]);
+    }
+}
+
+/**
+ * Pick the microphone.
+ *
+ * `wpctl set-default` takes any node id, so it is the same call as for a sink -
+ * which is why the ids from readWpctlDevices must not be tidied into something
+ * prettier. pactl needs the other verb, and there the id is a device name
+ * rather than an index; see readPactlDevices.
+ *
+ * This also decides which microphone the voice recorder uses, since that
+ * records from @DEFAULT_SOURCE@.
+ */
+export async function setDefaultSource(id: string): Promise<void> {
+    if (which('wpctl')) {
+        await run('wpctl', ['set-default', id]);
+    } else if (which('pactl')) {
+        await run('pactl', ['set-default-source', id]);
+    }
+}
+
+/** Microphone gain and mute: the input-side mirror of getVolume. */
+export async function getInputLevel(): Promise<VolumeLevel> {
+    if (which('wpctl')) {
+        const text = await output('wpctl', ['get-volume', SOURCE], 4000);
+        const match = text ? /Volume:\s*([\d.]+)/.exec(text) : undefined;
+        return {
+            available: text !== undefined,
+            volume: match ? Math.round(Number(match[1]) * 100) : 0,
+            muted: text !== undefined && text.includes('[MUTED]'),
+        };
+    }
+    if (which('pactl')) {
+        const volumeText = await output('pactl', ['get-source-volume', '@DEFAULT_SOURCE@'], 4000);
+        const muteText = await output('pactl', ['get-source-mute', '@DEFAULT_SOURCE@'], 4000);
+        const percent = volumeText ? /(\d+)%/.exec(volumeText) : undefined;
+        return {
+            available: volumeText !== undefined,
+            volume: percent ? Number(percent[1]) : 0,
+            muted: muteText?.includes('yes') ?? false,
+        };
+    }
+    return { available: false, volume: 0, muted: true };
+}
+
+export async function setInputVolume(percent: number): Promise<void> {
+    // Capped at 100 rather than the sink's 150: pushing a microphone past its
+    // hardware level raises the noise floor along with the voice.
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    if (which('wpctl')) {
+        await run('wpctl', ['set-volume', SOURCE, `${clamped / 100}`]);
+    } else if (which('pactl')) {
+        await run('pactl', ['set-source-volume', '@DEFAULT_SOURCE@', `${clamped}%`]);
+    }
+}
+
+export async function toggleInputMute(): Promise<void> {
+    if (which('wpctl')) {
+        await run('wpctl', ['set-mute', SOURCE, 'toggle']);
+    } else if (which('pactl')) {
+        await run('pactl', ['set-source-mute', '@DEFAULT_SOURCE@', 'toggle']);
     }
 }
 

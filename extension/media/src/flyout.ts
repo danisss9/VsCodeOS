@@ -445,6 +445,40 @@ function renderVolume(): void {
         ));
     }
     card.append(list);
+
+    // The input half. It was already being fetched and thrown away; a machine
+    // with two microphones had no way at all to say which one to record from.
+    if (audio.sources.length === 0 && !audio.input) {
+        return;
+    }
+    card.append(h('div', { class: 'section-head' }, 'Input device'));
+    if (audio.input) {
+        card.append(slider(
+            audio.input.muted ? 'micMute' : 'mic',
+            audio.input.muted ? 0 : audio.input.volume,
+            0,
+            100,
+            (value) => post({ type: 'micVolume', value }),
+            () => post({ type: 'micMute' }),
+            audio.input.muted ? 'Unmute the microphone' : 'Mute the microphone',
+        ));
+    }
+
+    const inputs = h('div', { class: 'list' });
+    if (audio.sources.length === 0) {
+        inputs.append(h('div', { class: 'empty' }, 'No microphone found.'));
+    }
+    for (const source of audio.sources) {
+        inputs.append(h('button', {
+            class: `list-row${source.isDefault ? ' active' : ''}`,
+            on: { click: () => post({ type: 'source', id: source.id }) },
+        },
+        h('span', { html: icon('mic', 18) }),
+        h('span', { class: 'list-main' }, h('div', { class: 'list-name' }, source.name)),
+        source.isDefault ? h('span', { html: icon('check', 16) }) : null,
+        ));
+    }
+    card.append(inputs);
 }
 
 // ----------------------------------------------------------------- network

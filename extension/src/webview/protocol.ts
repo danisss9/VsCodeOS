@@ -136,6 +136,9 @@ export type WebviewMessage =
     | { type: 'volume'; value: number }
     | { type: 'mute' }
     | { type: 'sink'; id: string }
+    | { type: 'source'; id: string }
+    | { type: 'micVolume'; value: number }
+    | { type: 'micMute' }
     | { type: 'brightness'; value: number }
     | { type: 'wifi'; enabled: boolean }
     | { type: 'scan' }

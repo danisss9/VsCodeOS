@@ -48,6 +48,8 @@ const PATHS: Record<string, string> = {
     grid: 'M4 4h7v7H4V4zM13 4h7v7h-7V4zM4 13h7v7H4v-7zM13 13h7v7h-7v-7z',
     list: 'M4 6h16M4 12h16M4 18h16',
     mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM6 11a6 6 0 0 0 12 0M12 17v4',
+    // The mic with a stroke through it, matching how volumeMute reads.
+    micMute: 'M12 3a3 3 0 0 1 3 3v5M9 8v4a3 3 0 0 0 4.9 2.3M6 11a6 6 0 0 0 9.3 5M18 11v1M12 17v4M4 3l16 18',
     stop: 'M6 6h12v12H6z',
     camera: 'M3 7h4l2-2h6l2 2h4v13H3V7zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
     save: 'M4 4h12l4 4v12H4V4zM8 4v6h8V4M8 20v-6h8v6',
