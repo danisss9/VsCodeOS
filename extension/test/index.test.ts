@@ -359,6 +359,12 @@ describe('notification payloads', () => {
         assert.equal(urgencyOf({ urgency: 'loud' }), 'normal');
     });
 
+    it('unwraps the variant the hints dictionary actually delivers', () => {
+        // a{sv} means every hint arrives as a Variant, not a bare number.
+        assert.equal(urgencyOf({ urgency: { signature: 'y', value: 2 } }), 'critical');
+        assert.equal(urgencyOf({ urgency: { signature: 'y', value: 0 } }), 'low');
+    });
+
     it('joins summary and body into one line', () => {
         assert.equal(notificationText('Backup', 'finished in 3s'), 'Backup — finished in 3s');
         assert.equal(notificationText('Backup', ''), 'Backup');

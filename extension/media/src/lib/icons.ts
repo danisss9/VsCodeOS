@@ -69,6 +69,12 @@ const PATHS: Record<string, string> = {
     brush: 'M15.5 3.5l5 5-8 8-5-5 8-8zM7.5 11.5L4 15c-1 1-1 4-1 5 1 0 4 0 5-1l3.5-3.5',
     tab: 'M3 6h7l2 2h9v10H3V6z',
     fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+    bell: 'M18 15V10a6 6 0 0 0-12 0v5l-2 3h16l-2-3zM10 21h4',
+    shield: 'M12 2.5l8 3v6c0 5-3.4 8.9-8 10-4.6-1.1-8-5-8-10v-6l8-3z',
+    // A box with a lid band across it, which is how a zip reads at 18px.
+    archive: 'M3 6.5h18v4H3v-4zM4.5 10.5v9h15v-9M10 14h4',
+    keyboard: 'M2.5 6.5h19v11h-19v-11zM6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14h12',
+    display: 'M3 4.5h18v11H3v-4.5zM8.5 20h7M12 15.5V20',
 };
 
 /** Solid glyphs, drawn with a fill instead of a stroke. */

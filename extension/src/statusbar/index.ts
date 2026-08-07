@@ -18,10 +18,12 @@ import * as batterySys from '../sys/battery';
 import * as bluetoothSys from '../sys/bluetooth';
 import * as networkSys from '../sys/network';
 import { MprisMonitor, type NowPlaying } from '../sys/mpris';
+import type { NotificationServer } from '../sys/notifications';
 import { formatDate, formatTime } from '../util/format';
 
 /** Left to right, as the tray is read. */
 const PRIORITY = {
+    notifications: -25,
     media: -50,
     battery: -100,
     volume: -200,
@@ -52,14 +54,24 @@ export class StatusBar implements vscode.Disposable {
     private readonly networkItem: vscode.StatusBarItem;
     private readonly bluetoothItem: vscode.StatusBarItem;
     private readonly mediaItem: vscode.StatusBarItem;
+    private readonly notificationItem: vscode.StatusBarItem;
 
     private clockTimer: NodeJS.Timeout | undefined;
     private slowTimer: NodeJS.Timeout | undefined;
 
-    constructor(private readonly music: MprisMonitor) {
+    constructor(
+        private readonly music: MprisMonitor,
+        private readonly notifications: NotificationServer,
+    ) {
         // The first argument is the item's *id*, which has to be unique - the
         // battery tile and the power button are both "power" to a user, but they
         // cannot share one here.
+        this.notificationItem = this.create(
+            'notifications',
+            PRIORITY.notifications,
+            'vscodeos.notifications.show',
+            'Notifications',
+        );
         this.mediaItem = this.create('media', PRIORITY.media, 'vscodeos.music.show', 'Music');
         this.batteryItem = this.create('battery', PRIORITY.battery, 'vscodeos.power.settings', 'Battery');
         this.volumeItem = this.create('volume', PRIORITY.volume, 'vscodeos.volume.show', 'Volume');
@@ -86,6 +98,7 @@ export class StatusBar implements vscode.Disposable {
         this.power.tooltip = new vscode.MarkdownString('**Power** — sleep, restart or shut down');
 
         this.music.on('change', (state: NowPlaying | undefined) => this.renderMedia(state));
+        this.notifications.on('change', () => this.renderNotifications());
     }
 
     private create(
@@ -117,6 +130,7 @@ export class StatusBar implements vscode.Disposable {
 
         this.slowTimer = setInterval(() => void this.tickSlow(), SLOW_TICK_MS);
         this.renderMedia(this.music.current);
+        this.renderNotifications();
     }
 
     private tickClock(): void {
@@ -233,6 +247,35 @@ export class StatusBar implements vscode.Disposable {
             '_Click for devices_',
         ].join('\n\n'));
         this.bluetoothItem.show();
+    }
+
+    /**
+     * Push-driven, not polled: the server emits `change` on every arrival, and
+     * a notification the user has to wait five seconds to see counted is not
+     * much of a notification.
+     */
+    private renderNotifications(): void {
+        if (!this.notifications.running) {
+            // Nothing owns the bus name, so nothing will ever arrive; an empty
+            // bell would be a button that does nothing.
+            this.notificationItem.hide();
+            return;
+        }
+
+        const { unread, records } = this.notifications;
+        this.notificationItem.text = unread > 0 ? `$(bell-dot) ${unread}` : '$(bell)';
+        this.notificationItem.backgroundColor = records.some((r) => !r.read && r.urgency === 'critical')
+            ? new vscode.ThemeColor('statusBarItem.warningBackground')
+            : undefined;
+        this.notificationItem.tooltip = new vscode.MarkdownString([
+            unread > 0 ? `**${unread} new notification${unread === 1 ? '' : 's'}**` : '**Notifications**',
+            records.length === 0
+                ? 'Nothing yet'
+                : records.slice(0, 3).map((r) => truncate(r.text, 48)).join('\n\n'),
+            '',
+            '_Click for the notification centre_',
+        ].join('\n\n'));
+        this.notificationItem.show();
     }
 
     private renderMedia(state: NowPlaying | undefined): void {

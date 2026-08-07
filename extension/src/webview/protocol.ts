@@ -9,6 +9,7 @@ import type { BatteryState } from '../sys/battery';
 import type { BluetoothState } from '../sys/bluetooth';
 import type { NetworkState } from '../sys/network';
 import type { NowPlaying } from '../sys/mpris';
+import type { NotificationRecord } from '../sys/notifications';
 import type { PowerAction } from '../sys/power';
 import type { ProcessInfo, SystemInfo } from '../sys/procfs';
 
@@ -19,9 +20,12 @@ export type { BatteryState } from '../sys/battery';
 export type { BluetoothState, BluetoothDevice } from '../sys/bluetooth';
 export type { NetworkState, AccessPoint, Connection } from '../sys/network';
 export type { NowPlaying } from '../sys/mpris';
+export type { NotificationRecord } from '../sys/notifications';
 export type { ProcessInfo, SystemInfo } from '../sys/procfs';
 
-export type FlyoutKind = 'apps' | 'power' | 'powersettings' | 'calendar' | 'volume' | 'network' | 'bluetooth' | 'music';
+export type FlyoutKind =
+    | 'apps' | 'power' | 'powersettings' | 'calendar'
+    | 'volume' | 'network' | 'bluetooth' | 'music' | 'notifications';
 
 /**
  * One entry in the app launcher. Deliberately plain data: the registry that
@@ -56,6 +60,9 @@ export interface FlyoutState {
     players?: string[];
     mprisAvailable?: boolean;
     canSuspend?: boolean;
+    notifications?: NotificationRecord[];
+    /** False when another daemon owns the bus name, so nothing will ever arrive. */
+    notificationsAvailable?: boolean;
 }
 
 /** One row in the updater. */
@@ -148,6 +155,9 @@ export type WebviewMessage =
     | { type: 'launchMusic'; service: 'spotify' | 'ytmusic' }
     | { type: 'command'; command: string }
     | { type: 'closeFlyout' }
+    // notifications
+    | { type: 'dismissNotification'; id: number }
+    | { type: 'clearNotifications' }
     // task manager
     | { type: 'endTask'; pid: number; name: string }
     | { type: 'endTaskAsRoot'; pid: number; name: string }

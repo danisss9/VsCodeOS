@@ -8,7 +8,7 @@
 // in the bottom panel. The side bar is the default: the bottom panel is where
 // the terminal lives, and clicking the clock should not close it.
 //
-// One provider serves all eight cards, because a container can only hold one
+// One provider serves all nine cards, because a container can only hold one
 // view without splitting the space between them, and because they share their
 // whole refresh loop.
 
@@ -22,6 +22,7 @@ import * as mpris from '../sys/mpris';
 import * as network from '../sys/network';
 import * as power from '../sys/power';
 import { MprisMonitor } from '../sys/mpris';
+import type { NotificationServer } from '../sys/notifications';
 import { availableApps } from '../apps/registry';
 import { render, webviewOptions } from '../webview/html';
 import type { FlyoutKind, FlyoutState, HostMessage, WebviewMessage } from '../webview/protocol';
@@ -36,6 +37,7 @@ const TITLES: Record<FlyoutKind, string> = {
     network: 'Network',
     bluetooth: 'Bluetooth',
     music: 'Music',
+    notifications: 'Notifications',
 };
 
 const REFRESH_MS = 2000;
@@ -64,6 +66,7 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly context: vscode.ExtensionContext,
         private readonly music: MprisMonitor,
+        private readonly notifications: NotificationServer,
     ) {}
 
     private get location(): FlyoutLocation {
@@ -203,6 +206,12 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
             }
             if (this.kind === 'power') {
                 state.canSuspend = power.canSuspend();
+            }
+            if (this.kind === 'notifications') {
+                state.notifications = this.notifications.records;
+                state.notificationsAvailable = this.notifications.running;
+                // Opening the card is reading them; the tray badge clears with it.
+                this.notifications.markAllRead();
             }
 
             this.post({ type: 'state', state });
@@ -379,6 +388,16 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
                 await vscode.commands.executeCommand('vscodeos.browser.open', url);
                 return;
             }
+
+            case 'dismissNotification':
+                this.notifications.dismiss(message.id);
+                await this.refresh();
+                return;
+
+            case 'clearNotifications':
+                this.notifications.clear();
+                await this.refresh();
+                return;
 
             case 'command':
                 await vscode.commands.executeCommand(message.command);

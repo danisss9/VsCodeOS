@@ -51,7 +51,19 @@ const configs = [
             // bundle fails on a machine that never installed them.
             'bufferutil',
             'utf-8-validate',
+            // dbus-next reaches for `x11` to find a bus address from a window
+            // selection, which is the pre-systemd discovery route. sys/notifications.ts
+            // resolves the address itself and passes it in, so that branch is
+            // unreachable - but it is a bare `require`, which esbuild resolves at
+            // build time whether or not the code can run.
+            'x11',
         ],
+        alias: {
+            // dbus-next's other optional dependency. Not externalised but
+            // *replaced*: see src/sys/usocket.ts for why a stub built on
+            // node:net is the right answer rather than an unresolved require.
+            usocket: join(root, 'src', 'sys', 'usocket.ts'),
+        },
     },
     {
         ...common,
