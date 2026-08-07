@@ -100,14 +100,31 @@
     <dragThreshold>8</dragThreshold>
     <doubleClickTime>200</doubleClickTime>
     <screenEdgeWarpTime>0</screenEdgeWarpTime>
-    <context name="Frame">
-      <!-- Focus on click, and nothing else. No move, no resize, no menus. -->
-      <mousebind button="Left" action="Press">
-        <action name="Focus"/>
-        <action name="Raise"/>
-      </mousebind>
-    </context>
+    <!--
+      There is deliberately no <context name="Frame"> here, and binding a plain
+      button in one is what breaks left click in the editor.
+
+      Openbox grabs the buttons it has bindings for, and it grabs the two window
+      contexts differently (openbox/mouse.c, mouse_grab_for_client):
+
+          Frame   -> grab on the frame window, GrabModeAsync
+          Client  -> grab on the client window, GrabModeSync
+
+      Only the synchronous one reaches the application: openbox runs the binding
+      and then replays the pointer, so the click arrives in VS Code as well. The
+      asynchronous grab on the frame just consumes the event. Worse, the frame is
+      the client window's parent, and X activates the outermost of two competing
+      passive grabs - "a passive grab on the same button/key combination does not
+      exist on any ancestor of the grab-window" - so the Frame grab wins and the
+      Client one never fires at all.
+
+      A bare <mousebind button="Left"> under Frame therefore swallows every left
+      click in the editor while the right and middle buttons, bound only under
+      Client, carry on working. Anything bound here must be modifier-prefixed
+      (A-Left and friends), which is exactly what upstream's rc.xml does.
+    -->
     <context name="Client">
+      <!-- Focus on click, and nothing else. No move, no resize, no menus. -->
       <mousebind button="Left" action="Press">
         <action name="Focus"/>
         <action name="Raise"/>
