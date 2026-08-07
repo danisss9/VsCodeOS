@@ -58,5 +58,14 @@ polkit.addRule(function (action, subject) {
         return polkit.Result.YES;
     }
 
+    /* Storage Sense, which runs `pkexec /usr/local/bin/vscodeos-clean` to trim
+       the package cache and the journal and to remove orphaned packages. Same
+       terms as vscodeos-update: one exact program, a fixed vocabulary of words
+       as its only arguments, no user-supplied command line and no paths. */
+    if (action.id === "org.freedesktop.policykit.exec"
+        && action.lookup("program") === "/usr/local/bin/vscodeos-clean") {
+        return polkit.Result.YES;
+    }
+
     return polkit.Result.NOT_HANDLED;
 });

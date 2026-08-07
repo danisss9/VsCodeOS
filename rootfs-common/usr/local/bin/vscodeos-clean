@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Reclaim disk space that only root can reclaim. The privileged half of Storage
+# Sense in System Settings.
+#
+# Run through pkexec, which polkit answers without a prompt for exactly this
+# program (etc/polkit-1/rules.d/49-vscodeos.rules). sudo is not an option:
+# vscodeos-install tightens sudoers to ask for a password, and there is no
+# polkit authentication agent in a session whose entire UI is the editor, so a
+# password prompt has nowhere to appear and would simply hang.
+#
+# Usage: vscodeos-clean report
+#        vscodeos-clean <pacman-cache|journal|orphans> [more...]
+#
+#   report        print "<id> <bytes>" for each target, so the GUI can show
+#                 sizes without guessing. Reads only; changes nothing.
+#   pacman-cache  drop cached packages, keeping the most recent of each
+#   journal       trim the systemd journal to 50 MB
+#   orphans       remove packages pulled in as dependencies and no longer needed
+#
+# Every argument is matched against that fixed list before anything runs. This
+# is a password-free path to root, so it takes words, never a command line, and
+# never a path from the caller.
+#
+# Output is plain and line-buffered: the GUI streams it into a log pane, so
+# progress bars and colour would only arrive as noise.
+
+set -Eeuo pipefail
+
+readonly PACMAN_CACHE=/var/cache/pacman/pkg
+readonly JOURNAL_KEEP=50M
+
+msg() { printf '==> %s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+(( EUID == 0 )) || die "this must run as root (Storage Sense uses pkexec)"
+
+(( $# > 0 )) || die "usage: vscodeos-clean <report|pacman-cache|journal|orphans>"
+
+for action in "$@"; do
+    case "${action}" in
+        report|pacman-cache|journal|orphans) ;;
+        *) die "unknown action '${action}'" ;;
+    esac
+done
+
+# Bytes used by a path, or 0 when it is not there. Never fails the script: a
+# machine with no journal directory is a machine with nothing to report.
+size_of() {
+    local path="$1"
+    [[ -e "${path}" ]] || { printf '0\n'; return; }
+    du -sx -B1 "${path}" 2>/dev/null | cut -f1 || printf '0\n'
+}
+
+# What `paccache -rk1` would remove, without removing it. paccache prints
+# "finished dry run: N candidates (disk space saved: X MiB)", which is a string
+# meant for people, so the candidate files are measured directly instead.
+pacman_cache_reclaimable() {
+    command -v paccache >/dev/null || { printf '0\n'; return; }
+    local total=0 file
+    while IFS= read -r file; do
+        [[ -f "${file}" ]] || continue
+        total=$(( total + $(stat -c %s "${file}" 2>/dev/null || printf 0) ))
+    done < <(paccache -dvk1 2>/dev/null | grep -E '^/' || true)
+    printf '%s\n' "${total}"
+}
+
+journal_reclaimable() {
+    command -v journalctl >/dev/null || { printf '0\n'; return; }
+    local used
+    used=$(size_of /var/log/journal)
+    # Only what is above the ceiling can actually be freed.
+    local keep=$(( 50 * 1024 * 1024 ))
+    if (( used > keep )); then
+        printf '%s\n' "$(( used - keep ))"
+    else
+        printf '0\n'
+    fi
+}
+
+orphans_reclaimable() {
+    command -v pacman >/dev/null || { printf '0\n'; return; }
+    local total=0 line
+    # `pacman -Qtdq` lists orphans; -Qi gives each one's installed size in bytes.
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        total=$(( total + line ))
+    done < <(pacman -Qtdq 2>/dev/null | xargs -r pacman -Qi 2>/dev/null \
+        | awk -F': *' '/^Installed Size/ { print $2 }' \
+        | awk '{
+            unit = $2; value = $1;
+            if (unit ~ /^K/) value *= 1024;
+            else if (unit ~ /^M/) value *= 1024 * 1024;
+            else if (unit ~ /^G/) value *= 1024 * 1024 * 1024;
+            printf "%d\n", value;
+          }' || true)
+    printf '%s\n' "${total}"
+}
+
+do_report() {
+    printf 'pacman-cache %s\n' "$(pacman_cache_reclaimable)"
+    printf 'journal %s\n' "$(journal_reclaimable)"
+    printf 'orphans %s\n' "$(orphans_reclaimable)"
+}
+
+clean_pacman_cache() {
+    command -v paccache >/dev/null || die "paccache is missing (pacman-contrib)"
+    msg "trimming the package cache in ${PACMAN_CACHE}"
+    # -k1 keeps the most recent version of each package, so a downgrade after a
+    # bad update is still possible. -u would also drop packages that are no
+    # longer installed, which is the same argument in reverse; keep it simple.
+    paccache -rk1
+    msg "package cache trimmed"
+}
+
+clean_journal() {
+    command -v journalctl >/dev/null || die "journalctl is missing"
+    msg "trimming the systemd journal to ${JOURNAL_KEEP}"
+    journalctl --vacuum-size="${JOURNAL_KEEP}"
+    msg "journal trimmed"
+}
+
+clean_orphans() {
+    command -v pacman >/dev/null || die "pacman is missing"
+    local orphans
+    # `|| true`: pacman exits 1 when there are no orphans, which is not an error.
+    orphans=$(pacman -Qtdq 2>/dev/null || true)
+    if [[ -z "${orphans}" ]]; then
+        msg "no orphaned packages"
+        return
+    fi
+    msg "removing orphaned packages:"
+    printf '%s\n' "${orphans}"
+    # --noconfirm because nothing can answer a prompt here.
+    printf '%s\n' "${orphans}" | xargs -r pacman -Rns --noconfirm --noprogressbar
+    msg "orphans removed"
+}
+
+for action in "$@"; do
+    case "${action}" in
+        report)       do_report ;;
+        pacman-cache) clean_pacman_cache ;;
+        journal)      clean_journal ;;
+        orphans)      clean_orphans ;;
+    esac
+done
+
+# `report` is the one action with machine-readable output; saying "done" after
+# it would leave the caller parsing a line that is not a size.
+if [[ " $* " != *" report "* ]]; then
+    msg "done"
+fi
