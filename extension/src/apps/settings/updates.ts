@@ -1,8 +1,8 @@
-// The Updater.
+// The Updates pane of System Settings.
 //
 // VS Code OS is updated from two places that know nothing about each other:
 // pacman, for the Arch base, and a tarball from Microsoft, for the editor. Both
-// were terminal-only until now, which on a machine whose whole UI is the editor
+// were terminal-only once, which on a machine whose whole UI is the editor
 // meant "read the README and type two commands".
 //
 // Checking is unprivileged on purpose. `checkupdates` computes pending package
@@ -15,42 +15,35 @@ import * as vscode from 'vscode';
 import { promises as fs } from 'node:fs';
 import * as https from 'node:https';
 import * as os from 'node:os';
-import { run, start, which } from '../sys/exec';
-import { parsePendingUpdates } from '../util/parse';
-import { codeUpdateUrl } from '../util/url';
-import { runPowerAction } from '../views/flyout';
-import { AppPanels } from './panels';
-import type { AppOptions } from './panels';
-import type { HostMessage, UpdateItem, UpdateTarget, WebviewMessage } from '../webview/protocol';
-import { log } from '../log';
-
-const PANEL: AppOptions = {
-    id: 'updater',
-    title: 'Updater',
-    script: 'updater',
-    icon: 'updater',
-};
+import { run, start, which } from '../../sys/exec';
+import { parsePendingUpdates } from '../../util/parse';
+import { codeUpdateUrl } from '../../util/url';
+import { runPowerAction } from '../../views/flyout';
+import type { HostMessage, UpdateItem, UpdateTarget, WebviewMessage } from '../../webview/protocol';
+import { log } from '../../log';
 
 const CODE_PREFIX = '/opt/visual-studio-code';
 const UPDATE_HELPER = '/usr/local/bin/vscodeos-update';
 
-export class Updater {
+/**
+ * The updater's own state lives on the host rather than in the page, so closing
+ * System Settings in the middle of a `pacman -Syu` and reopening it picks the
+ * running update back up instead of losing it.
+ */
+export class UpdatesController {
     private running: UpdateTarget | undefined;
     private restartNeeded = false;
 
-    constructor(private readonly panels: AppPanels) {}
+    /** `post` is supplied by whoever owns the panel; see apps/systemSettings.ts. */
+    constructor(private readonly post: (message: HostMessage) => void) {}
 
-    open(): void {
-        this.panels.open({ ...PANEL, onMessage: (message) => this.handle(message) });
+    /** True while an update is applying, which the settings rail shows. */
+    get isRunning(): boolean {
+        return this.running !== undefined;
     }
 
-    private post(message: HostMessage): void {
-        void this.panels.get(PANEL.id)?.webview.postMessage(message);
-    }
-
-    private async handle(message: WebviewMessage): Promise<void> {
+    async handle(message: WebviewMessage): Promise<void> {
         switch (message.type) {
-            case 'ready':
             case 'checkUpdates':
                 await this.check();
                 return;
@@ -74,7 +67,7 @@ export class Updater {
 
     // ----------------------------------------------------------------- check
 
-    private async check(): Promise<void> {
+    async check(): Promise<void> {
         this.post({
             type: 'updateStatus',
             items: this.skeleton().map((item) => ({ ...item, status: 'checking' as const })),

@@ -211,7 +211,32 @@
       },
       {
         "command": "vscodeos.apps.updater",
-        "title": "Updater",
+        "title": "Updates",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.open",
+        "title": "System Settings",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.display",
+        "title": "Display Settings",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.keyboard",
+        "title": "Keyboard Settings",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.sound",
+        "title": "Sound Settings",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.storage",
+        "title": "Storage Sense",
         "category": "VS Code OS"
       },
       {
@@ -299,6 +324,20 @@
           "minimum": 5,
           "maximum": 500,
           "description": "How many notifications the notification centre keeps."
+        },
+        "vscodeos.keyboard.repeatDelay": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 2000,
+          "description": "Milliseconds a key is held before it starts repeating. Reapplied at every login, because X forgets it with the session."
+        },
+        "vscodeos.keyboard.repeatRate": {
+          "type": "number",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 110,
+          "description": "Key repeats per second once a key has started repeating."
         },
         "vscodeos.browser.command": {
           "type": "string",
