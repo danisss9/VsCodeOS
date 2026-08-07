@@ -1,8 +1,15 @@
 // A graphical file explorer, as a webview panel.
 //
 // VS Code's own Explorer is scoped to the open workspace and only really deals
-// in text. This one starts at $HOME, browses the whole filesystem, and hands
-// anything that is not text to xdg-open - which is what a desktop needs.
+// in text. This one starts at $HOME and browses the whole filesystem.
+//
+// Everything opens *in the editor*. There used to be a list of known text
+// extensions here, with everything else thrown at xdg-open - which meant
+// double-clicking a PNG launched some other program on top of the editor, and an
+// unlisted extension did too. `vscode.open` already routes a file to whatever
+// editor claims it: the text editor for text, the built-in image preview for
+// pictures, the binary notice for the rest. The one thing the editor has no
+// answer for is media with a soundtrack, and that now has an app of its own.
 
 import * as vscode from 'vscode';
 import { promises as fs } from 'node:fs';
@@ -11,16 +18,9 @@ import * as path from 'node:path';
 import { openWithDefaultApp } from '../sys/browser';
 import { output } from '../sys/exec';
 import { render, webviewOptions } from '../webview/html';
+import { mediaKind } from '../util/media';
 import type { FileEntry, Place, WebviewMessage } from '../webview/protocol';
 import { log } from '../log';
-
-const TEXT_EXTENSIONS = new Set([
-    '.txt', '.md', '.markdown', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg',
-    '.log', '.csv', '.tsv', '.xml', '.html', '.htm', '.css', '.scss', '.less', '.js', '.mjs', '.cjs',
-    '.ts', '.tsx', '.jsx', '.py', '.rb', '.go', '.rs', '.c', '.h', '.cpp', '.hpp', '.cs', '.java',
-    '.kt', '.swift', '.sh', '.bash', '.zsh', '.fish', '.php', '.pl', '.lua', '.sql', '.env', '.gitignore',
-    '.service', '.desktop', '.rules', '.patch', '.diff',
-]);
 
 export class FileExplorer {
     private panel: vscode.WebviewPanel | undefined;
@@ -106,21 +106,16 @@ export class FileExplorer {
                     return;
 
                 case 'openFile': {
-                    const extension = path.extname(message.path).toLowerCase();
                     const stat = await fs.stat(message.path);
                     if (stat.isDirectory()) {
                         await this.list(message.path);
                         return;
                     }
-                    // Text opens in the editor, which is the whole point of this OS;
-                    // everything else goes to the desktop's handler.
-                    if (TEXT_EXTENSIONS.has(extension) || extension === '') {
-                        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(message.path));
-                        await vscode.window.showTextDocument(document, { preview: false });
-                    } else if (!openWithDefaultApp(message.path)) {
-                        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(message.path));
-                        await vscode.window.showTextDocument(document, { preview: false });
+                    if (mediaKind(message.path)) {
+                        await vscode.commands.executeCommand('vscodeos.apps.player', message.path);
+                        return;
                     }
+                    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(message.path));
                     return;
                 }
 

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Apply updates to VS Code OS. The one privileged entry point behind the
+# Updater app.
+#
+# The app runs this through pkexec, which polkit answers without a prompt for
+# exactly this program (etc/polkit-1/rules.d/49-vscodeos.rules). sudo is not an
+# option: vscodeos-install tightens sudoers to ask for a password, and there is
+# no polkit authentication agent in a session whose entire UI is the editor, so
+# a password prompt has nowhere to appear and would simply hang.
+#
+# Usage: vscodeos-update <packages|code|shell|all>
+#
+#   packages  pacman -Syu, the Arch base
+#   code      Visual Studio Code, which is a tarball and not a pacman package
+#   shell     reinstall VsCodeOsCore into the editor's built-in extensions
+#   all       all three, in that order
+#
+# Output is plain and line-buffered: the GUI streams it into a log pane, so
+# progress bars and colour would only arrive as noise.
+
+set -Eeuo pipefail
+
+readonly ACTION="${1:-}"
+
+msg() { printf '==> %s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+(( EUID == 0 )) || die "this must run as root (the Updater app uses pkexec)"
+
+case "${ACTION}" in
+    packages|code|shell|all) ;;
+    *) die "usage: vscodeos-update <packages|code|shell|all>" ;;
+esac
+
+update_packages() {
+    command -v pacman >/dev/null || die "pacman is not installed"
+    msg "updating the Arch base"
+    # --noconfirm because nothing can answer a prompt here, and --needed so a
+    # re-run after a partial failure does not rebuild what already landed.
+    pacman -Syu --noconfirm --needed --noprogressbar
+    msg "packages up to date"
+}
+
+update_code() {
+    [[ -x /usr/local/bin/vscodeos-update-code ]] || die "vscodeos-update-code is missing"
+    msg "updating Visual Studio Code"
+    /usr/local/bin/vscodeos-update-code
+}
+
+update_shell() {
+    [[ -x /usr/local/bin/vscodeos-install-extensions ]] || die "vscodeos-install-extensions is missing"
+    msg "reinstalling the desktop shell"
+    /usr/local/bin/vscodeos-install-extensions --force
+}
+
+case "${ACTION}" in
+    packages) update_packages ;;
+    code)     update_code ;;
+    shell)    update_shell ;;
+    all)
+        update_packages
+        update_code
+        # vscodeos-update-code already reinstalls the shell when it replaces the
+        # editor tree. Running it again is a copy of a few hundred kilobytes and
+        # keeps `all` correct when the editor was already current.
+        update_shell
+        ;;
+esac
+
+msg "done"

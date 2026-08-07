@@ -92,6 +92,21 @@ select {
     width: min(560px, 100%);
 }
 
+/* In the side bar the container is already about the card's width, so the
+   corner-anchoring and the drop shadow have nothing to do and the borders just
+   waste horizontal space. The card fills the view instead. */
+@media (max-width: 460px) {
+    .flyout-host { padding: 8px; }
+    .flyout,
+    .flyout.wide {
+        width: 100%;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        padding: 6px 2px;
+    }
+}
+
 @keyframes flyout-in {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
@@ -431,6 +446,91 @@ input[type='range']::-webkit-slider-thumb {
     gap: 8px;
     font-size: 0.82em;
     color: var(--vscodeos-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- app launcher */
+
+.app-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    border-radius: var(--vscodeos-radius);
+    background: var(--vscode-input-background, rgba(127, 127, 127, 0.12));
+    border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.app-search-icon {
+    display: flex;
+    color: var(--vscodeos-muted);
+}
+
+.app-search {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--vscode-input-foreground, inherit);
+    font: inherit;
+    outline: none;
+}
+
+.app-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+}
+
+.app-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 14px 6px 12px;
+    border-radius: var(--vscodeos-radius);
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    text-align: center;
+}
+
+.app-tile:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.app-tile:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+
+.app-tile-icon {
+    display: flex;
+    color: var(--vscodeos-accent);
+}
+
+.app-tile-label {
+    font-size: 0.88em;
+    line-height: 1.25;
+}
+
+/* An icon-button that is a toggle rather than an action. */
+.icon-button.on {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.battery-readout {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 12px 4px 2px;
+}
+
+.battery-level {
+    font-size: 1.9em;
+    font-weight: 300;
     font-variant-numeric: tabular-nums;
 }
 
@@ -986,4 +1086,244 @@ table.processes tbody tr.selected {
 
 audio {
     width: 100%;
+}
+
+/* --------------------------------------------------------- media player */
+
+.player-body {
+    display: flex;
+    gap: 0;
+    overflow: hidden;
+}
+
+.player-stage {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: #000000;
+}
+
+.player-surface {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    background: #000000;
+}
+
+/* Audio has nothing to look at, so the element is left visible for its
+   controls and a glyph is floated over the empty picture area. */
+.player-art {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    color: var(--vscodeos-muted);
+}
+
+.player-art[hidden] {
+    display: none;
+}
+
+.player-title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 45%;
+}
+
+.player-list {
+    flex: 0 0 240px;
+    overflow: auto;
+    border-left: 1px solid var(--vscode-panel-border, transparent);
+    padding-bottom: 10px;
+}
+
+@media (max-width: 720px) {
+    .player-body { flex-direction: column; }
+    .player-list { flex: 0 0 auto; max-height: 34%; border-left: none; border-top: 1px solid var(--vscode-panel-border, transparent); }
+}
+
+/* ------------------------------------------------------------- browser */
+
+.browser-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 6px 0;
+    overflow-x: auto;
+    flex: 0 0 auto;
+}
+
+.browser-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 190px;
+    padding: 5px 8px;
+    border-radius: 5px 5px 0 0;
+    background: var(--vscodeos-tile-bg);
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.browser-tab.active {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+}
+
+.browser-tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.browser-tab-close,
+.browser-tab-new {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    flex: 0 0 auto;
+}
+
+.browser-tab-close:hover,
+.browser-tab-new:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.25));
+}
+
+.browser-toolbar {
+    flex-wrap: nowrap;
+}
+
+.browser-address {
+    flex: 1;
+    min-width: 80px;
+}
+
+.browser-body {
+    display: flex;
+    overflow: hidden;
+}
+
+/* The stage takes focus so the keyboard can be forwarded; it must not draw a
+   focus ring around the whole page while doing it. */
+.browser-stage {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    background: #ffffff;
+    outline: none;
+}
+
+.browser-screen {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* The frames are already blurry from JPEG; smoothing them further just
+       costs time on a Pi. */
+    image-rendering: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* ------------------------------------------------------------- updater */
+
+.update-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+}
+
+.update-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    border-radius: var(--vscodeos-radius);
+    background: var(--vscodeos-tile-bg);
+}
+
+.update-icon {
+    display: flex;
+    color: var(--vscodeos-accent);
+    padding-top: 2px;
+}
+
+.update-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.update-title {
+    font-weight: 600;
+}
+
+.update-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.update-badge {
+    font-size: 0.85em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--vscode-badge-background, rgba(127, 127, 127, 0.3));
+    color: var(--vscode-badge-foreground, inherit);
+    white-space: nowrap;
+}
+
+.update-badge.available {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.update-badge.current {
+    background: transparent;
+    color: var(--vscodeos-muted);
+}
+
+.update-detail {
+    margin: 8px 0 0;
+    padding: 8px;
+    max-height: 150px;
+    overflow: auto;
+    border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.85em;
+    white-space: pre-wrap;
+}
+
+.update-restart {
+    padding: 12px;
+    border-radius: var(--vscodeos-radius);
+    border: 1px solid var(--vscodeos-accent);
+}
+
+.update-log {
+    margin: 0 12px 12px;
+    padding: 10px;
+    max-height: 340px;
+    overflow: auto;
+    border-radius: var(--vscodeos-radius);
+    background: var(--vscode-terminal-background, var(--vscode-editor-background));
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.86em;
+    white-space: pre-wrap;
+    word-break: break-word;
 }

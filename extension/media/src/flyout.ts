@@ -1,18 +1,21 @@
-// The six tray flyouts, drawn as one right-anchored card.
+// The eight tray flyouts, drawn as one card.
 //
-// The panel is full width, so the card pins itself to the bottom-right corner:
-// that is what makes it read as a flyout rising out of the tray item that was
-// clicked, rather than as a docked panel.
+// In the bottom panel the host is full width, so the card pins itself to the
+// bottom-right corner and reads as a flyout rising out of the tray item that was
+// clicked. In the side bar - the default - the container is already the right
+// width and the anchoring does nothing, which is exactly what is wanted there.
 
 import { append, clear, h, onMessage, post, root, throttle, formatDuration } from './lib/dom';
 import { icon, signalIcon } from './lib/icons';
-import type { FlyoutKind, FlyoutState, HostMessage } from '../../src/webview/protocol';
+import type { AppEntry, BluetoothDevice, FlyoutKind, FlyoutState, HostMessage } from '../../src/webview/protocol';
 
-let kind: FlyoutKind = 'quicksettings';
+let kind: FlyoutKind = 'apps';
 let state: FlyoutState | undefined;
 let busy: string | undefined;
 /** Month the calendar is showing; the clock keeps ticking regardless. */
 let calendarMonth = new Date();
+/** What has been typed into the launcher's search box. */
+let appQuery = '';
 
 const host = h('div', { class: 'flyout-host' });
 const card = h('div', { class: 'flyout' });
@@ -25,6 +28,7 @@ onMessage<HostMessage>((message) => {
             if (message.kind !== kind) {
                 kind = message.kind;
                 calendarMonth = new Date();
+                appQuery = '';
                 busy = undefined;
             }
             render();
@@ -58,20 +62,94 @@ setInterval(() => {
 }, 1000);
 
 function render(): void {
-    card.classList.toggle('wide', kind === 'network' || kind === 'music');
+    card.classList.toggle('wide', kind === 'network' || kind === 'music' || kind === 'apps' || kind === 'bluetooth');
     clear(card);
     switch (kind) {
+        case 'apps': return renderApps();
         case 'power': return renderPower();
         case 'calendar': return renderCalendar();
         case 'volume': return renderVolume();
         case 'network': return renderNetwork();
+        case 'bluetooth': return renderBluetooth();
         case 'music': return renderMusic();
-        default: return renderQuickSettings();
+        default: return renderPowerSettings();
     }
 }
 
 function title(text: string): HTMLElement {
     return h('h2', { class: 'flyout-title' }, text);
+}
+
+// -------------------------------------------------------------- app launcher
+
+function matches(app: AppEntry, query: string): boolean {
+    if (!query) {
+        return true;
+    }
+    const haystack = [app.title, app.description, ...(app.keywords ?? [])].join(' ').toLowerCase();
+    // Every word has to appear somewhere, so "voice rec" finds the recorder but
+    // "voice paint" finds nothing.
+    return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
+}
+
+function renderApps(): void {
+    const open = (app: AppEntry): void => post({ type: 'command', command: app.command });
+
+    const search = h('input', {
+        class: 'app-search',
+        type: 'text',
+        placeholder: 'Search apps',
+        value: appQuery,
+        'aria-label': 'Search apps',
+        on: {
+            input: (event: Event) => {
+                appQuery = (event.target as HTMLInputElement).value;
+                renderGrid();
+            },
+            keydown: (event: KeyboardEvent) => {
+                if (event.key === 'Enter') {
+                    const first = (state?.apps ?? []).filter((app) => matches(app, appQuery))[0];
+                    if (first) {
+                        open(first);
+                    }
+                }
+            },
+        },
+    });
+
+    const grid = h('div', { class: 'app-grid' });
+
+    function renderGrid(): void {
+        const list = (state?.apps ?? []).filter((app) => matches(app, appQuery));
+        clear(grid);
+        if (list.length === 0) {
+            grid.append(h('div', { class: 'empty' }, 'No app matches that.'));
+            return;
+        }
+        for (const app of list) {
+            grid.append(h('button', {
+                class: 'app-tile',
+                title: app.description,
+                on: { click: () => open(app) },
+            },
+            h('span', { class: 'app-tile-icon', html: icon(app.icon, 26) }),
+            h('span', { class: 'app-tile-label' }, app.title),
+            ));
+        }
+    }
+
+    card.append(
+        h('div', { class: 'app-search-row' },
+            h('span', { class: 'app-search-icon', html: icon('search', 16) }),
+            search,
+        ),
+        grid,
+    );
+    renderGrid();
+
+    // Typing should start immediately, the way a start menu does. The view is
+    // focused by the host unless it was opened with preserveFocus.
+    setTimeout(() => search.focus(), 0);
 }
 
 // ------------------------------------------------------------------- power
@@ -162,107 +240,55 @@ function renderCalendar(): void {
     );
 }
 
-// ----------------------------------------------------------- quick settings
+// ----------------------------------------------------------- power settings
 
-function renderQuickSettings(): void {
-    const tiles = h('div', { class: 'tiles' });
+/**
+ * The battery tile's menu. Three things and no more: how much power the machine
+ * is using, how bright the screen is, and how much charge is left. Wi-Fi,
+ * Bluetooth and airplane mode used to be here too and are now on the tray items
+ * and cards that own them.
+ */
+function renderPowerSettings(): void {
+    const battery = state?.battery;
 
-    const tile = (options: {
-        on: boolean;
-        glyph: string;
-        label: string;
-        sub?: string;
-        onClick: () => void;
-        disabled?: boolean;
-    }): HTMLElement =>
-        h('button', {
-            class: `tile${options.on ? ' on' : ''}`,
-            disabled: options.disabled,
-            on: { click: options.onClick },
-        },
-        h('span', { html: options.glyph }),
-        h('span', { class: 'tile-label' },
-            options.label,
-            options.sub ? h('div', { class: 'tile-sub' }, options.sub) : null,
-        ));
-
-    const network = state?.network;
-    if (network?.wifiHardware) {
-        const active = network.active.find((c) => c.type.includes('wireless'));
-        tiles.append(tile({
-            on: network.wifiEnabled,
-            // A real signal strength only exists per access point, and the tile
-            // has no room for one - so it says on/off rather than inventing bars.
-            glyph: icon(network.wifiEnabled ? 'wifi' : 'wifiOff', 20),
-            label: 'Wi-Fi',
-            sub: network.wifiEnabled ? (active?.name ?? 'Not connected') : 'Off',
-            onClick: () => post({ type: 'wifi', enabled: !network.wifiEnabled }),
-        }));
-    }
-
-    if (state?.bluetooth?.available) {
-        const connected = state.bluetooth.devices.find((d) => d.connected);
-        tiles.append(tile({
-            on: state.bluetooth.powered,
-            glyph: icon('bluetooth', 20),
-            label: 'Bluetooth',
-            sub: state.bluetooth.powered ? (connected?.name ?? 'Not connected') : 'Off',
-            onClick: () => post({ type: 'bluetooth', enabled: !state?.bluetooth?.powered }),
-        }));
-    }
-
-    tiles.append(tile({
-        on: state?.airplaneMode ?? false,
-        glyph: icon('airplane', 20),
-        label: 'Airplane mode',
-        onClick: () => post({ type: 'airplane', enabled: !state?.airplaneMode }),
-    }));
-
-    tiles.append(tile({
-        on: state?.energySaver ?? false,
-        glyph: icon('battery', 20),
-        label: 'Energy saver',
-        onClick: () => post({ type: 'energySaver', enabled: !state?.energySaver }),
-    }));
-
-    tiles.append(tile({
-        on: state?.nightLight ?? false,
-        glyph: icon('moon', 20),
-        label: 'Night light',
-        onClick: () => post({ type: 'nightLight', enabled: !state?.nightLight }),
-    }));
-
-    tiles.append(tile({
-        on: false,
-        glyph: icon('accessibility', 20),
-        label: 'Accessibility',
-        onClick: () => post({ type: 'accessibility' }),
-    }));
-
-    card.append(title('Quick settings'), tiles);
+    card.append(
+        title('Power'),
+        h('div', { class: 'tiles', style: { gridTemplateColumns: '1fr' } },
+            h('button', {
+                class: `tile${state?.energySaver ? ' on' : ''}`,
+                on: { click: () => post({ type: 'energySaver', enabled: !state?.energySaver }) },
+            },
+            h('span', { html: icon('bolt', 20) }),
+            h('span', { class: 'tile-label' },
+                'Energy saver',
+                h('div', { class: 'tile-sub' },
+                    state?.energySaver ? 'On — dimmed, screen sleeps sooner' : 'Off — full performance'),
+            )),
+        ),
+    );
 
     if (state?.brightness !== undefined) {
-        card.append(slider('sun', state.brightness, 1, 100, (value) => post({ type: 'brightness', value })));
-    }
-
-    if (state?.audio?.available) {
-        const audio = state.audio;
+        // The moon button toggles night light: it is a property of the screen's
+        // light, so it belongs on the brightness row rather than in a tile.
         card.append(slider(
-            audio.muted ? 'volumeMute' : 'volumeHigh',
-            audio.muted ? 0 : audio.volume,
-            0,
+            state.nightLight ? 'moon' : 'sun',
+            state.brightness,
+            1,
             100,
-            (value) => post({ type: 'volume', value }),
-            () => post({ type: 'mute' }),
+            (value) => post({ type: 'brightness', value }),
+            () => post({ type: 'nightLight', enabled: !state?.nightLight }),
+            state.nightLight ? 'Turn night light off' : 'Turn night light on',
         ));
     }
 
-    const battery = state?.battery;
-    if (battery) {
-        card.append(h('p', { class: 'flyout-note' },
-            battery.present
-                ? `Battery ${battery.level}% · ${battery.charging ? 'charging' : battery.onAc ? 'plugged in' : 'on battery'}`
-                : 'Running on mains power'));
+    if (battery?.present) {
+        card.append(h('div', { class: 'battery-readout' },
+            h('span', { class: 'battery-level' }, `${battery.level}%`),
+            h('span', { class: 'list-sub' },
+                battery.charging ? 'Charging' : battery.onAc ? 'Plugged in' : 'On battery'),
+        ));
+    } else if (battery) {
+        card.append(h('p', { class: 'flyout-note' }, 'Running on mains power.'));
     }
 }
 
@@ -273,12 +299,14 @@ function slider(
     max: number,
     onInput: (value: number) => void,
     onIconClick?: () => void,
+    iconTitle?: string,
 ): HTMLElement {
     const readout = h('span', { class: 'slider-value' }, `${Math.round(value)}%`);
     const send = throttle(onInput, 120);
     return h('div', { class: 'slider-row' },
         h(onIconClick ? 'button' : 'span', {
             class: onIconClick ? 'icon-button' : '',
+            title: iconTitle,
             html: icon(glyph, 18),
             on: onIconClick ? { click: onIconClick } : {},
         }),
@@ -371,9 +399,17 @@ function renderNetwork(): void {
         h('div', { class: 'section-head' },
             h('span', {}, network.wifiHardware ? 'Wi-Fi' : 'Connections'),
             h('span', { style: { display: 'flex', gap: '2px' } },
+                // Airplane mode lives here rather than in the power menu: it is a
+                // radio switch, and this is the card about radios.
+                h('button', {
+                    class: `icon-button${state?.airplaneMode ? ' on' : ''}`,
+                    title: state?.airplaneMode ? 'Turn airplane mode off' : 'Turn airplane mode on',
+                    html: icon('airplane', 15),
+                    on: { click: () => post({ type: 'airplane', enabled: !state?.airplaneMode }) },
+                }),
                 network.wifiHardware
                     ? h('button', {
-                        class: 'icon-button',
+                        class: `icon-button${network.wifiEnabled ? ' on' : ''}`,
                         title: network.wifiEnabled ? 'Turn Wi-Fi off' : 'Turn Wi-Fi on',
                         html: icon(network.wifiEnabled ? 'wifi' : 'wifiOff', 15),
                         on: { click: () => post({ type: 'wifi', enabled: !network.wifiEnabled }) },
@@ -391,6 +427,10 @@ function renderNetwork(): void {
         ),
         list,
     );
+
+    if (state?.airplaneMode) {
+        card.append(h('p', { class: 'flyout-note' }, 'Airplane mode is on — every radio is off.'));
+    }
 
     if (busy) {
         card.append(h('div', { class: 'empty' }, busy));
@@ -435,6 +475,101 @@ function renderNetwork(): void {
         ));
     }
     card.append(wifiList);
+}
+
+// --------------------------------------------------------------- bluetooth
+
+function renderBluetooth(): void {
+    const bluetooth = state?.bluetooth;
+    card.append(title('Bluetooth'));
+
+    if (!bluetooth?.available) {
+        card.append(h('div', { class: 'empty' }, 'No Bluetooth adapter on this machine.'));
+        return;
+    }
+
+    card.append(h('div', { class: 'section-head' },
+        h('span', {}, bluetooth.powered ? 'On' : 'Off'),
+        h('span', { style: { display: 'flex', gap: '2px' } },
+            h('button', {
+                class: `icon-button${bluetooth.powered ? ' on' : ''}`,
+                title: bluetooth.powered ? 'Turn Bluetooth off' : 'Turn Bluetooth on',
+                html: icon(bluetooth.powered ? 'bluetooth' : 'bluetoothOff', 15),
+                on: { click: () => post({ type: 'bluetooth', enabled: !bluetooth.powered }) },
+            }),
+            bluetooth.powered
+                ? h('button', {
+                    class: 'icon-button',
+                    title: 'Look for nearby devices',
+                    disabled: state?.bluetoothScanning,
+                    html: icon('refresh', 15),
+                    on: { click: () => post({ type: 'bluetoothScan' }) },
+                })
+                : null,
+        ),
+    ));
+
+    if (!bluetooth.powered) {
+        card.append(h('div', { class: 'empty' }, 'Bluetooth is off.'));
+        return;
+    }
+
+    if (busy) {
+        card.append(h('div', { class: 'empty' }, busy));
+        return;
+    }
+
+    const paired = bluetooth.devices.filter((device) => device.paired);
+    const nearby = bluetooth.devices.filter((device) => !device.paired);
+
+    const row = (device: BluetoothDevice): HTMLElement =>
+        h('div', {
+            class: `list-row${device.connected ? ' active' : ''}`,
+            title: device.mac,
+        },
+        h('span', { html: icon('bluetooth', 18) }),
+        h('span', { class: 'list-main' },
+            h('div', { class: 'list-name' }, device.name),
+            h('div', { class: 'list-sub' }, device.connected ? 'Connected' : device.paired ? 'Paired' : device.mac),
+        ),
+        h('button', {
+            class: 'button',
+            on: {
+                click: () => post(device.paired
+                    ? { type: 'bluetoothDevice', mac: device.mac, connect: !device.connected }
+                    : { type: 'bluetoothPair', mac: device.mac }),
+            },
+        }, device.paired ? (device.connected ? 'Disconnect' : 'Connect') : 'Pair'),
+        device.paired
+            ? h('button', {
+                class: 'icon-button',
+                title: 'Forget this device',
+                html: icon('trash', 15),
+                on: { click: () => post({ type: 'bluetoothForget', mac: device.mac, name: device.name }) },
+            })
+            : null,
+        );
+
+    const pairedList = h('div', { class: 'list' });
+    if (paired.length === 0) {
+        pairedList.append(h('div', { class: 'empty' }, 'Nothing paired yet.'));
+    }
+    for (const device of paired) {
+        pairedList.append(row(device));
+    }
+    card.append(h('div', { class: 'section-head' }, 'My devices'), pairedList);
+
+    card.append(h('div', { class: 'section-head' },
+        state?.bluetoothScanning ? 'Looking for devices…' : 'Nearby'));
+    const nearbyList = h('div', { class: 'list' });
+    if (nearby.length === 0) {
+        nearbyList.append(h('div', { class: 'empty' },
+            state?.bluetoothScanning ? 'Scanning…' : 'Press the refresh button to look for devices.'));
+    }
+    for (const device of nearby) {
+        nearbyList.append(row(device));
+    }
+    card.append(nearbyList);
 }
 
 // ------------------------------------------------------------------- music
@@ -521,9 +656,11 @@ function renderMusic(): void {
     }
 }
 
-// Escape closes the flyout, the way a real one does.
+// Escape closes the flyout, the way a real one does. Which container it lives in
+// decides whether that means closing the side bar or the panel, and only the
+// host knows - closing both here would take the terminal down with it.
 window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
-        post({ type: 'command', command: 'workbench.action.closePanel' });
+        post({ type: 'closeFlyout' });
     }
 });

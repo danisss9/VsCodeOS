@@ -61,36 +61,52 @@ lives in **VsCodeOsCore** — a VS Code extension that ships *inside* the editor
 rather than being installed from the Marketplace. Its source is in
 [`extension/`](extension/), and it adds:
 
+- **An all-apps button**, in the bottom-left corner — a searchable grid of every
+  program on the machine, the way a start menu works.
 - **A tray**, at the right end of the status bar. Left to right: now playing,
-  battery, volume, network, the clock and date, and the power button in the
-  corner. Each one opens a flyout in the bottom panel — a Windows-style card
-  that rises directly above the item you clicked.
+  battery, volume, network, Bluetooth, the clock and date, and the power button
+  in the corner. Each one opens a card in the side bar. (VS Code has no API for
+  a popup anchored to a status bar item; the side bar is the closest thing that
+  does not take the terminal panel away from you. `vscodeos.flyout.location`
+  puts the cards back in the bottom panel if you prefer them there.)
 - **Power** — sleep, restart, shut down and log out, with a confirmation.
 - **Calendar** — a month grid with today highlighted, on the clock.
-- **Quick settings** — Wi-Fi, Bluetooth, airplane mode, energy saver, night
-  light and accessibility, plus brightness and volume sliders. Tiles hide
-  themselves when the hardware is not there, rather than showing a dead switch.
-- **Network** — scan, connect with a password, and switch between saved
-  connections.
+- **Power settings**, on the battery — energy saver, a brightness slider whose
+  moon button toggles night light, and the charge left. Nothing else: the radio
+  switches live on the cards that own them.
+- **Network** — scan, connect with a password, switch between saved connections,
+  and airplane mode.
+- **Bluetooth** — turn the adapter on, scan for devices, pair, connect and
+  forget. The button hides itself when there is no adapter.
 - **Task Manager**, in the activity bar — processes with CPU and memory, per-core
   meters, load average, uptime and CPU temperature, sortable and filterable, with
   End task.
 - **Files** — a graphical file explorer with a places sidebar, grid and list
-  views, rename, trash, copy and paste. Text opens in the editor; everything else
-  goes to `xdg-open`.
+  views, rename, trash, copy and paste. **Everything opens in the editor**: text
+  in the text editor, images in the built-in preview, video and audio in the
+  media player.
+- **Browser** — a real browser rendered *inside* an editor tab, with tabs, an
+  address bar and history. It drives a headless Chromium and streams its picture
+  back, which is the only way to show sites that refuse to be framed. "Open in
+  browser" hands the page to a real window when that is the better answer.
+- **Media Player** — video and audio in a tab, with a playlist of whatever else
+  is in the folder.
 - **Music** — transport controls for whatever is playing, over MPRIS, plus
-  one-click launchers that open Spotify Web and YouTube Music as their own
-  browser windows.
-- **Apps** — Calculator, Notepad, Paint, Screenshot and Voice Recorder. `VS Code
-  OS: All Apps…` in the command palette (**Ctrl** + **Shift** + **P**) lists
-  everything.
+  one-click launchers for Spotify Web and YouTube Music.
+- **Updater** — a GUI for the two update paths below, with live output and a
+  restart prompt when one is needed.
+- **Apps** — Calculator, Paint, Screenshot and Voice Recorder. Pressing
+  **Print Screen** jumps straight to a region capture.
+
+There is deliberately no Notepad: the editor is a better one, and the file
+manager now opens text in it.
 
 Two honest limits, both imposed by VS Code rather than by this project:
 **Spotify audio cannot play inside the editor** (VS Code's Electron ships no
 Widevine, so the Web Playback SDK cannot work — which is exactly why the player
 controls a real browser window instead), and **Microsoft Edge is not on either
 image** (it is AUR-only on Arch, and Microsoft publishes no ARM64 Linux build at
-all, so the Pi could never have matched). The browser launcher prefers
+all, so the Pi could never have matched). Everything browser-shaped prefers
 `microsoft-edge-stable` if you install it yourself, and falls back to Chromium.
 
 Every part of the shell can be turned off individually in settings under
@@ -205,12 +221,21 @@ VSCODEOS_RESPAWN=1                    # 0 = do not relaunch when VS Code exits
 
 ## Day-to-day
 
+The **Updater** app does all of this with buttons — open it from the all-apps
+button in the bottom-left corner. By hand:
+
 ```bash
 sudo pacman -Syu            # update the Arch base
 sudo vscodeos-update-code   # update VS Code itself (it is not a pacman package)
 nmtui                       # join a Wi-Fi network (or use the tray)
 code ~/Projects/thing       # open something in the running editor
 ```
+
+The Updater runs the same work through `/usr/local/bin/vscodeos-update`, which
+it launches with `pkexec`. polkit is configured to allow that one program
+without a password (`/etc/polkit-1/rules.d/49-vscodeos.rules`) because there is
+no authentication agent in a session whose entire UI is the editor — a password
+prompt would have nowhere to appear.
 
 Extensions, settings sync and Marketplace sign-in all work normally;
 `gnome-keyring` is started by the session so credentials persist.

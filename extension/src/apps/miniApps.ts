@@ -1,8 +1,11 @@
-// Calculator, Notepad, Paint, Screenshot and Voice Recorder.
+// Calculator, Paint, Screenshot and Voice Recorder.
 //
-// All five are webviews. Two of them need the host for things a webview cannot
+// All four are webviews. Two of them need the host for things a webview cannot
 // do at all: capturing the screen (scrot) and capturing the microphone
 // (pw-record - VS Code denies webviews the 'media' permission outright).
+//
+// There is deliberately no Notepad here any more: the editor this shell is built
+// into is a better one, and `vscode.open` now sends every text file to it.
 
 import * as vscode from 'vscode';
 import { promises as fs } from 'node:fs';
@@ -36,18 +39,8 @@ export class MiniApps implements vscode.Disposable {
         });
     }
 
-    notepad(): void {
-        this.panels.open({
-            id: 'notepad',
-            title: 'Notepad',
-            script: 'notepad',
-            icon: 'notepad',
-            onMessage: (message, panel) => this.handleNotepad(message, panel),
-        });
-    }
-
-    screenshot(): void {
-        this.panels.open({
+    screenshot(): vscode.WebviewPanel {
+        return this.panels.open({
             id: 'screenshot',
             title: 'Screenshot',
             script: 'screenshot',
@@ -55,6 +48,18 @@ export class MiniApps implements vscode.Disposable {
             localRoots: [vscode.Uri.file(this.directory('screenshot.directory', '~/Pictures/Screenshots'))],
             onMessage: (message, panel) => this.handleScreenshot(message, panel),
         });
+    }
+
+    /**
+     * Open the app and go straight into a rectangle drag. This is what the Print
+     * key runs, through the URI handler in extension.ts - so the whole gesture is
+     * "press Print, drag a box", with the app left open on the result.
+     */
+    async captureRegion(): Promise<void> {
+        // No "capturing…" message first: scrot --freeze takes over the screen
+        // with a crosshair immediately, which says it better than a banner in a
+        // panel the user is no longer looking at.
+        await this.handleScreenshot({ type: 'capture', mode: 'region', delay: 0 }, this.screenshot());
     }
 
     recorderApp(): void {
@@ -66,25 +71,6 @@ export class MiniApps implements vscode.Disposable {
             localRoots: [vscode.Uri.file(this.directory('recorder.directory', '~/Music/Recordings'))],
             onMessage: (message, panel) => this.handleRecorder(message, panel),
         });
-    }
-
-    /** One list of everything, for the "All apps" palette entry. */
-    async menu(): Promise<void> {
-        const items: (vscode.QuickPickItem & { command: string })[] = [
-            { label: '$(folder) Files', description: 'Browse the filesystem', command: 'vscodeos.files.open' },
-            { label: '$(globe) Web Browser', description: 'Open a browser window', command: 'vscodeos.browser.open' },
-            { label: '$(play-circle) Music', description: 'Spotify and YouTube Music', command: 'vscodeos.music.show' },
-            { label: '$(dashboard) Task Manager', description: 'Processes, CPU and memory', command: 'vscodeos.taskManager.focus' },
-            { label: '$(symbol-operator) Calculator', description: '', command: 'vscodeos.apps.calculator' },
-            { label: '$(note) Notepad', description: '', command: 'vscodeos.apps.notepad' },
-            { label: '$(paintcan) Paint', description: '', command: 'vscodeos.apps.paint' },
-            { label: '$(device-camera) Screenshot', description: '', command: 'vscodeos.apps.screenshot' },
-            { label: '$(mic) Voice Recorder', description: '', command: 'vscodeos.apps.recorder' },
-        ];
-        const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Open an app' });
-        if (picked) {
-            await vscode.commands.executeCommand(picked.command);
-        }
     }
 
     // ---------------------------------------------------------------- paint
@@ -124,59 +110,6 @@ export class MiniApps implements vscode.Disposable {
                 uri: `data:${mime};base64,${bytes.toString('base64')}`,
                 name: path.basename(file.fsPath),
             });
-        }
-    }
-
-    // -------------------------------------------------------------- notepad
-
-    private async handleNotepad(message: WebviewMessage, panel: vscode.WebviewPanel): Promise<void> {
-        switch (message.type) {
-            case 'saveNote': {
-                let target = message.path;
-                if (!target || message.saveAs) {
-                    const directory = this.directory('notepad.directory', '~/Documents');
-                    await fs.mkdir(directory, { recursive: true });
-                    const picked = await vscode.window.showSaveDialog({
-                        defaultUri: vscode.Uri.file(path.join(directory, `note-${stamp()}.txt`)),
-                        filters: { Text: ['txt', 'md'] },
-                    });
-                    if (!picked) {
-                        return;
-                    }
-                    target = picked.fsPath;
-                }
-                await fs.mkdir(path.dirname(target), { recursive: true });
-                await fs.writeFile(target, message.text, 'utf8');
-                void panel.webview.postMessage({ type: 'note', path: target, text: message.text, dirty: false });
-                return;
-            }
-
-            case 'openNote': {
-                const picked = await vscode.window.showOpenDialog({
-                    canSelectMany: false,
-                    defaultUri: vscode.Uri.file(this.directory('notepad.directory', '~/Documents')),
-                });
-                const file = picked?.[0];
-                if (!file) {
-                    return;
-                }
-                const text = await fs.readFile(file.fsPath, 'utf8');
-                void panel.webview.postMessage({ type: 'note', path: file.fsPath, text, dirty: false });
-                return;
-            }
-
-            case 'newNote':
-                void panel.webview.postMessage({ type: 'note', path: undefined, text: '', dirty: false });
-                return;
-
-            case 'noteToEditor': {
-                const document = await vscode.workspace.openTextDocument({ content: message.text, language: 'plaintext' });
-                await vscode.window.showTextDocument(document, { preview: false });
-                return;
-            }
-
-            default:
-                return;
         }
     }
 

@@ -6,8 +6,13 @@
     Openbox is used purely as a kiosk frame for VS Code: it gives Electron a
     real window manager (so menus, dialogs and file pickers behave) while
     removing every affordance that could close, minimise, resize or hide the
-    editor. There are deliberately no <keyboard> bindings at all, so Alt+F4,
-    Alt+Space, Alt+Tab and the workspace shortcuts do nothing.
+    editor. Alt+F4, Alt+Space, Alt+Tab and the workspace shortcuts therefore do
+    nothing: the <keyboard> section below binds one key and one key only.
+
+    That key is Print, and it has to be bound here rather than in the editor.
+    On X11 the Print key never arrives in Electron as a keydown, so a VS Code
+    keybinding cannot see it at all; openbox can, and it hands the gesture back
+    to the editor through a URI.
   -->
 
   <resistance>
@@ -91,9 +96,17 @@
     </application>
   </applications>
 
-  <!-- No <keyboard> section: every window-management shortcut is disabled. -->
+  <!-- Every window-management shortcut is disabled; the one binding here opens
+       the screenshot tool on a region drag, which is what Print does on every
+       other desktop. vscodeos-screenshot hands a vscode:// URI to the running
+       editor, so the capture happens inside it rather than behind its back. -->
   <keyboard>
     <chainQuitKey></chainQuitKey>
+    <keybind key="Print">
+      <action name="Execute">
+        <command>/usr/local/bin/vscodeos-screenshot</command>
+      </action>
+    </keybind>
   </keyboard>
 
   <mouse>

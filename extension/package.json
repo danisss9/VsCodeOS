@@ -23,7 +23,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onUri"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -60,6 +61,12 @@
       "vscodeos-system": [
         {
           "type": "webview",
+          "id": "vscodeos.flyout",
+          "name": "System",
+          "when": "config.vscodeos.flyout.location == 'sidebar'"
+        },
+        {
+          "type": "webview",
           "id": "vscodeos.taskManager",
           "name": "Task Manager",
           "icon": "media/icons/system.svg",
@@ -69,8 +76,9 @@
       "vscodeos-flyout": [
         {
           "type": "webview",
-          "id": "vscodeos.flyout",
-          "name": "System"
+          "id": "vscodeos.flyout.panel",
+          "name": "System",
+          "when": "config.vscodeos.flyout.location == 'panel'"
         }
       ]
     },
@@ -107,8 +115,8 @@
         "category": "VS Code OS"
       },
       {
-        "command": "vscodeos.quickSettings.show",
-        "title": "Show Quick Settings",
+        "command": "vscodeos.power.settings",
+        "title": "Show Power Settings",
         "category": "VS Code OS"
       },
       {
@@ -134,6 +142,11 @@
       {
         "command": "vscodeos.network.show",
         "title": "Show Networks",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.bluetooth.show",
+        "title": "Show Bluetooth",
         "category": "VS Code OS"
       },
       {
@@ -172,11 +185,6 @@
         "category": "VS Code OS"
       },
       {
-        "command": "vscodeos.apps.notepad",
-        "title": "Notepad",
-        "category": "VS Code OS"
-      },
-      {
         "command": "vscodeos.apps.paint",
         "title": "Paint",
         "category": "VS Code OS"
@@ -187,8 +195,28 @@
         "category": "VS Code OS"
       },
       {
+        "command": "vscodeos.apps.screenshotRegion",
+        "title": "Capture a Region",
+        "category": "VS Code OS"
+      },
+      {
         "command": "vscodeos.apps.recorder",
         "title": "Voice Recorder",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.player",
+        "title": "Media Player",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.apps.updater",
+        "title": "Updater",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.settings.accessibility",
+        "title": "Accessibility Settings",
         "category": "VS Code OS"
       },
       {
@@ -215,6 +243,19 @@
           "default": "dd/MM/yyyy",
           "description": "Date shown next to the clock. Tokens: dd, d, MM, M, MMM, yyyy, yy. Leave empty to hide the date."
         },
+        "vscodeos.flyout.location": {
+          "type": "string",
+          "enum": [
+            "sidebar",
+            "panel"
+          ],
+          "enumDescriptions": [
+            "In the side bar, next to the Task Manager. Leaves the bottom panel to the terminal.",
+            "In the bottom panel, directly above the status bar."
+          ],
+          "default": "sidebar",
+          "description": "Where the tray menus (power, clock, network, Bluetooth, volume, music) open."
+        },
         "vscodeos.taskManager.enabled": {
           "type": "boolean",
           "default": true,
@@ -240,17 +281,31 @@
         "vscodeos.browser.command": {
           "type": "string",
           "default": "",
-          "description": "Browser to launch. Empty means: prefer microsoft-edge-stable, then chromium, then firefox."
+          "description": "Browser binary to render pages with, and to hand pages to when you choose \"Open in browser\". Empty means: prefer microsoft-edge-stable, then chromium, then firefox."
         },
         "vscodeos.browser.homepage": {
           "type": "string",
           "default": "https://duckduckgo.com",
           "description": "Page the browser opens when no URL is given."
         },
+        "vscodeos.browser.frameRate": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "maximum": 60,
+          "description": "Frames per second the in-editor browser streams. Lower it on a Raspberry Pi."
+        },
+        "vscodeos.browser.quality": {
+          "type": "number",
+          "default": 65,
+          "minimum": 20,
+          "maximum": 100,
+          "description": "JPEG quality of the in-editor browser's frames. Lower is faster and blurrier."
+        },
         "vscodeos.apps.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable the built-in mini-apps (calculator, notepad, paint, screenshot, recorder)."
+          "description": "Enable the built-in mini-apps (calculator, paint, screenshot, recorder, media player)."
         },
         "vscodeos.power.confirm": {
           "type": "boolean",
@@ -266,11 +321,6 @@
           "type": "string",
           "default": "~/Music/Recordings",
           "description": "Where the voice recorder saves audio."
-        },
-        "vscodeos.notepad.directory": {
-          "type": "string",
-          "default": "~/Documents",
-          "description": "Where Notepad saves new notes."
         }
       }
     },
@@ -281,7 +331,7 @@
           "when": "config.vscodeos.statusBar.enabled"
         },
         {
-          "command": "vscodeos.quickSettings.show",
+          "command": "vscodeos.power.settings",
           "when": "config.vscodeos.statusBar.enabled"
         }
       ]
@@ -300,5 +350,8 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.5.0"
   }
 }

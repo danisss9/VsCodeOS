@@ -43,5 +43,20 @@ polkit.addRule(function (action, subject) {
         return polkit.Result.YES;
     }
 
+    /* The Updater app, which runs `pkexec /usr/local/bin/vscodeos-update`.
+       Deliberately one exact program and not a directory or a prefix: this is a
+       password-free path to root, and it should reach exactly the one script
+       that is meant to be reachable. That script takes a fixed set of words as
+       its only argument and runs no user-supplied command line.
+
+       sudo cannot do this job. vscodeos-install rewrites sudoers so wheel
+       members authenticate with their own password, and there is no polkit
+       agent in this session to draw a prompt with - so an auth_admin answer
+       here would not ask, it would silently fail. */
+    if (action.id === "org.freedesktop.policykit.exec"
+        && action.lookup("program") === "/usr/local/bin/vscodeos-update") {
+        return polkit.Result.YES;
+    }
+
     return polkit.Result.NOT_HANDLED;
 });

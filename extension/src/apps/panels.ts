@@ -68,6 +68,31 @@ export class AppPanels implements vscode.Disposable {
         return this.panels.get(id);
     }
 
+    /**
+     * Widen (or narrow) the directories a live panel may load files from.
+     *
+     * The media player needs this: `localResourceRoots` is fixed when a webview
+     * is created, but the player has to reach whichever directory the next file
+     * happens to be in, and a video is far too big to hand over as a data URI the
+     * way the paint app does with images. Reassigning `options` reloads the page,
+     * so the HTML is re-rendered and the caller waits for the fresh `ready`.
+     */
+    setLocalRoots(id: string, roots: vscode.Uri[], options: AppOptions): boolean {
+        const panel = this.panels.get(id);
+        if (!panel) {
+            return false;
+        }
+        // retainContextWhenHidden is a panel option, not a webview one, and was
+        // set when the panel was created; only the roots change here.
+        panel.webview.options = webviewOptions(this.context, roots);
+        panel.webview.html = render(panel.webview, this.context, {
+            title: options.title,
+            script: options.script,
+            csp: options.csp,
+        });
+        return true;
+    }
+
     dispose(): void {
         for (const panel of this.panels.values()) {
             panel.dispose();

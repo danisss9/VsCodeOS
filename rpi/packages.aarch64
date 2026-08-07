@@ -20,6 +20,9 @@ sudo
 polkit
 dbus
 zram-generator
+# checkupdates, for the Updater app: it lists pending updates without touching
+# the real sync database.
+pacman-contrib
 
 # Networking
 networkmanager
