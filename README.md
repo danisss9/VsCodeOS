@@ -34,6 +34,7 @@ Two images are published for every release, sharing the same kiosk:
 | **Shell** | VsCodeOsCore, built into the editor | same |
 | **Browser** | Chromium | Chromium |
 | **Toolchain** | git, git-lfs, Node.js, Python, base-devel, Docker | git, Node.js, Python, base-devel |
+| **Firewall** | `ufw`, installed and off until you turn it on | same |
 | **Boot** | UEFI (x64 and ia32) and legacy BIOS, one hybrid image | Pi firmware from a FAT partition |
 | **Getting it onto a machine** | live medium + `vscodeos-install` | flash the image; it *is* the system |
 
@@ -63,9 +64,9 @@ rather than being installed from the Marketplace. Its source is in
 
 - **An all-apps button**, in the bottom-left corner — a searchable grid of every
   program on the machine, the way a start menu works.
-- **A tray**, at the right end of the status bar. Left to right: now playing,
-  battery, volume, network, Bluetooth, the clock and date, and the power button
-  in the corner. Each one opens a card in the side bar. (VS Code has no API for
+- **A tray**, at the right end of the status bar. Left to right: notifications,
+  now playing, battery, volume, network, Bluetooth, the clock and date, and the
+  power button in the corner. Each one opens a card in the side bar. (VS Code has no API for
   a popup anchored to a status bar item; the side bar is the closest thing that
   does not take the terminal panel away from you. `vscodeos.flyout.location`
   puts the cards back in the bottom panel if you prefer them there.)
@@ -74,17 +75,30 @@ rather than being installed from the Marketplace. Its source is in
 - **Power settings**, on the battery — energy saver, a brightness slider whose
   moon button toggles night light, and the charge left. Nothing else: the radio
   switches live on the cards that own them.
+- **Volume** — the output level and which speakers play it, plus microphone gain
+  and which microphone records. The voice recorder follows whatever is chosen
+  here.
 - **Network** — scan, connect with a password, switch between saved connections,
   and airplane mode.
 - **Bluetooth** — turn the adapter on, scan for devices, pair, connect and
   forget. The button hides itself when there is no adapter.
+- **Notifications** — the shell *is* the machine's notification daemon. It owns
+  `org.freedesktop.Notifications`, so `notify-send` and any application that
+  posts a notification lands in the editor's own notification UI, action buttons
+  and all. A bell in the tray keeps a history. Nothing else on either image
+  claims that name, so without this those notifications simply vanished.
 - **Task Manager**, in the activity bar — processes with CPU and memory, per-core
   meters, load average, uptime and CPU temperature, sortable and filterable, with
   End task.
 - **Files** — a graphical file explorer with a places sidebar, grid and list
   views, rename, trash, copy and paste. **Everything opens in the editor**: text
   in the text editor, images in the built-in preview, video and audio in the
-  media player.
+  media player. **Archives browse like folders** — zip, tar and everything
+  compressed — with Extract here, Extract to… and Compress.
+- **Recycle Bin** — in the Files app's places list and in the activity bar,
+  sharing one backend. Shows what you deleted, where it came from and when, with
+  Restore, Delete permanently and Empty. Before this, "Move to trash" put files
+  somewhere nothing could read them back from.
 - **Browser** — a real browser rendered *inside* an editor tab, with tabs, an
   address bar and history. It drives a headless Chromium and streams its picture
   back, which is the only way to show sites that refuse to be framed. "Open in
@@ -93,8 +107,22 @@ rather than being installed from the Marketplace. Its source is in
   is in the folder.
 - **Music** — transport controls for whatever is playing, over MPRIS, plus
   one-click launchers for Spotify Web and YouTube Music.
-- **Updater** — a GUI for the two update paths below, with live output and a
-  restart prompt when one is needed.
+- **System Settings** — Display (resolution, refresh rate, orientation, which
+  screen is primary, with a fifteen-second revert in case the monitor cannot
+  show the mode), Keyboard (layout and key repeat), Sound (which speakers play
+  and which microphone records), Storage, Updates and About.
+- **Storage Sense**, inside System Settings — how full each disk is, the largest
+  folders in your home, and a checklist of caches, temporary files and the
+  Recycle Bin with a size against each. The package cache, the systemd journal
+  and orphaned packages are there too, cleaned through a privileged helper.
+- **Updates**, inside System Settings — a GUI for the two update paths below,
+  with live output and a restart prompt when one is needed. (It used to be an
+  app of its own; `vscodeos.apps.updater` still opens it.)
+- **Firewall** — a GUI over `ufw`: the master switch, the default policies, the
+  rule list and presets for SSH, HTTP and HTTPS. Turning it on offers to allow
+  SSH first when something is listening on 22, because the default incoming
+  policy is deny and a machine being administered over the network would
+  otherwise go dark. **ufw ships disabled**; this is what turns it on.
 - **Apps** — Calculator, Paint, Screenshot and Voice Recorder. Pressing
   **Print Screen** jumps straight to a region capture.
 
@@ -221,8 +249,8 @@ VSCODEOS_RESPAWN=1                    # 0 = do not relaunch when VS Code exits
 
 ## Day-to-day
 
-The **Updater** app does all of this with buttons — open it from the all-apps
-button in the bottom-left corner. By hand:
+The **Updates** pane of **System Settings** does all of this with buttons — open
+it from the all-apps button in the bottom-left corner. By hand:
 
 ```bash
 sudo pacman -Syu            # update the Arch base
@@ -231,11 +259,15 @@ nmtui                       # join a Wi-Fi network (or use the tray)
 code ~/Projects/thing       # open something in the running editor
 ```
 
-The Updater runs the same work through `/usr/local/bin/vscodeos-update`, which
-it launches with `pkexec`. polkit is configured to allow that one program
-without a password (`/etc/polkit-1/rules.d/49-vscodeos.rules`) because there is
-no authentication agent in a session whose entire UI is the editor — a password
-prompt would have nowhere to appear.
+It runs the same work through `/usr/local/bin/vscodeos-update`, which it
+launches with `pkexec`. There are three of these privileged helpers —
+`vscodeos-update`, `vscodeos-clean` for Storage Sense and `vscodeos-firewall`
+for the Firewall app — and polkit is configured to allow exactly those three
+without a password (`/etc/polkit-1/rules.d/49-vscodeos.rules`), because there is
+no authentication agent in a session whose entire UI is the editor and a
+password prompt would have nowhere to appear. Each one takes a fixed vocabulary
+of words and validates its arguments before running anything; none of them
+accepts a command line.
 
 Extensions, settings sync and Marketplace sign-in all work normally;
 `gnome-keyring` is started by the session so credentials persist.
@@ -330,12 +362,15 @@ rootfs-common/                      the kiosk, shared by both images
   etc/passwd, group, shadow         the kiosk account (uid 1000)
   etc/systemd/system/               autologin on tty1, enabled services
   etc/X11/xorg.conf.d/              kiosk hardening (DontVTSwitch, DontZap)
-  etc/polkit-1/rules.d/             power and NetworkManager without a password
+  etc/polkit-1/rules.d/             power, NetworkManager and three helpers, unprompted
   etc/udev/rules.d/                 backlight writable by the `video` group
   etc/default/vscodeos              kiosk settings
   etc/skel/                         the kiosk user's home: .xinitrc, openbox
                                     rules, VS Code settings and keybindings
   usr/local/bin/vscodeos-kiosk      the session supervisor
+  usr/local/bin/vscodeos-update     the three pkexec'd helpers: updates,
+  usr/local/bin/vscodeos-clean      disk clean-up, and the firewall. Each takes
+  usr/local/bin/vscodeos-firewall   a fixed vocabulary, never a command line.
   usr/local/bin/vscodeos-update-code
   usr/local/bin/vscodeos-install-extensions
 
