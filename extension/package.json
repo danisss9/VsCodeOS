@@ -31,6 +31,15 @@
     }
   },
   "contributes": {
+    "icons": {
+      "vscodeos-power": {
+        "description": "Power (IEC 5009)",
+        "default": {
+          "fontPath": "./media/icons/vscodeos-icons.woff",
+          "fontCharacter": "\\E000"
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -70,7 +79,7 @@
         "command": "vscodeos.power.menu",
         "title": "Power…",
         "category": "VS Code OS",
-        "icon": "$(circle-slash)"
+        "icon": "$(vscodeos-power)"
       },
       {
         "command": "vscodeos.power.shutdown",
