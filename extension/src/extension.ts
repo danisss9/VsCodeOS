@@ -11,21 +11,27 @@ import * as vscode from 'vscode';
 import { AppPanels } from './apps/panels';
 import { Browser } from './apps/browser';
 import { FileExplorer } from './apps/fileExplorer';
+import { Marketplace } from './apps/marketplace';
 import { MediaPlayer } from './apps/mediaPlayer';
 import { MiniApps } from './apps/miniApps';
+import { MusicPlayer } from './apps/musicPlayer';
 import { Firewall } from './apps/firewall';
 import { SystemSettings } from './apps/systemSettings';
 import { StatusBar } from './statusbar';
+import { TrayMenus } from './statusbar/menus';
+import { AllAppsProvider } from './views/allApps';
 import { FlyoutProvider, runPowerAction } from './views/flyout';
-import { RecycleBinProvider } from './views/recycleBin';
 import { TaskManagerProvider } from './views/taskManager';
 import { MprisMonitor } from './sys/mpris';
 import { NotificationServer } from './sys/notifications';
+import { WebAppService } from './sys/webapps';
 import * as audio from './sys/audio';
+import * as browserSys from './sys/browser';
 import * as display from './sys/display';
 import * as keyboard from './sys/keyboard';
-import { TrashService } from './sys/trash';
+import { TRASH_PATH, TrashService } from './sys/trash';
 import * as mpris from './sys/mpris';
+import type { FlyoutKind } from './webview/protocol';
 import { log } from './log';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -56,9 +62,18 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     // --- the tray ----------------------------------------------------------
+    //
+    // Two implementations of the same eight menus. Quick picks are the default
+    // and are what a tray menu should be - a popup over the editor, gone on
+    // Escape. The webview cards are richer (real sliders, a month grid, album
+    // art) but they have to live in a container, which means taking the side
+    // bar or the panel away from whatever was in it.
+
+    const menus = new TrayMenus(music, notifications);
+    context.subscriptions.push(menus);
 
     // Contributed to both the side bar and the bottom panel under a `when` on
-    // vscodeos.flyout.location, so exactly one of these ever resolves. Both are
+    // vscodeos.flyout.location, so at most one of these ever resolves. Both are
     // registered because the setting can change without a reload.
     const flyout = new FlyoutProvider(context, music, notifications);
     for (const viewId of [FlyoutProvider.sidebarViewId, FlyoutProvider.panelViewId]) {
@@ -68,6 +83,12 @@ export function activate(context: vscode.ExtensionContext): void {
             }),
         );
     }
+
+    /** Every tray item goes through here; the setting decides which one answers. */
+    const showTray = (kind: FlyoutKind): Thenable<void> =>
+        config().get<string>('flyout.location', 'popup') === 'popup'
+            ? menus.show(kind)
+            : flyout.show(kind);
 
     if (config().get<boolean>('statusBar.enabled', true)) {
         const statusBar = new StatusBar(music, notifications);
@@ -85,27 +106,34 @@ export function activate(context: vscode.ExtensionContext): void {
         taskManager,
     );
 
-    // --- recycle bin -------------------------------------------------------
+    // --- the recycle bin ---------------------------------------------------
     //
-    // One service behind both surfaces - this view and the Files app's places
-    // list - so restoring in either redraws the other.
+    // No view of its own any more: it is a place in the Files app, which is
+    // where a bin belongs and where it can be browsed with the same columns and
+    // the same selection as everything else.
 
     const trash = new TrashService();
-    const recycleBin = new RecycleBinProvider(context, trash);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(RecycleBinProvider.viewId, recycleBin, {
-            webviewOptions: { retainContextWhenHidden: true },
-        }),
-        recycleBin,
-    );
 
     // --- apps --------------------------------------------------------------
+
+    const webApps = new WebAppService();
+    context.subscriptions.push({ dispose: () => webApps.dispose() });
+
+    const allApps = new AllAppsProvider(context, webApps);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(AllAppsProvider.viewId, allApps, {
+            webviewOptions: { retainContextWhenHidden: true },
+        }),
+        allApps,
+    );
 
     const panels = new AppPanels(context);
     const files = new FileExplorer(context, trash);
     const apps = new MiniApps(panels);
     const player = new MediaPlayer(panels);
-    const browser = new Browser(panels);
+    const musicApp = new MusicPlayer(panels);
+    const browser = new Browser(panels, webApps);
+    const marketplace = new Marketplace(panels, webApps);
     const settings = new SystemSettings(panels);
     const firewall = new Firewall(panels);
     context.subscriptions.push(
@@ -130,21 +158,23 @@ export function activate(context: vscode.ExtensionContext): void {
         context.subscriptions.push(vscode.commands.registerCommand(command, handler));
     };
 
-    register('vscodeos.power.menu', () => flyout.show('power'));
+    register('vscodeos.power.menu', () => showTray('power'));
     register('vscodeos.power.shutdown', () => runPowerAction('poweroff'));
     register('vscodeos.power.restart', () => runPowerAction('reboot'));
     register('vscodeos.power.sleep', () => runPowerAction('suspend'));
     register('vscodeos.power.logout', () => runPowerAction('logout'));
 
-    register('vscodeos.calendar.show', () => flyout.show('calendar'));
-    register('vscodeos.power.settings', () => flyout.show('powersettings'));
-    register('vscodeos.volume.show', () => flyout.show('volume'));
-    register('vscodeos.network.show', () => flyout.show('network'));
-    register('vscodeos.bluetooth.show', () => flyout.show('bluetooth'));
-    register('vscodeos.music.show', () => flyout.show('music'));
-    register('vscodeos.apps.menu', () => flyout.show('apps'));
-    register('vscodeos.notifications.show', () => flyout.show('notifications'));
+    register('vscodeos.calendar.show', () => showTray('calendar'));
+    register('vscodeos.power.settings', () => showTray('powersettings'));
+    register('vscodeos.volume.show', () => showTray('volume'));
+    register('vscodeos.network.show', () => showTray('network'));
+    register('vscodeos.bluetooth.show', () => showTray('bluetooth'));
+    register('vscodeos.music.show', () => showTray('music'));
+    register('vscodeos.notifications.show', () => showTray('notifications'));
     register('vscodeos.notifications.clear', () => notifications.clear());
+
+    register('vscodeos.apps.menu', () =>
+        vscode.commands.executeCommand(`${AllAppsProvider.viewId}.focus`));
 
     register('vscodeos.volume.up', () => audio.step(5));
     register('vscodeos.volume.down', () => audio.step(-5));
@@ -181,6 +211,66 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.apps.screenshotRegion', guard(() => apps.captureRegion()));
     register('vscodeos.apps.recorder', guard(() => apps.recorderApp()));
     register('vscodeos.apps.player', guard((path?: string) => player.open(path)));
+
+    register('vscodeos.music.open', () => {
+        if (!config().get<boolean>('music.enabled', true)) {
+            return vscode.window.showInformationMessage('The music player is disabled in settings.');
+        }
+        return musicApp.open();
+    });
+
+    // --- web apps ----------------------------------------------------------
+
+    const webAppsEnabled = (): boolean => config().get<boolean>('webApps.enabled', true);
+
+    register('vscodeos.marketplace.open', () => {
+        if (!webAppsEnabled()) {
+            return vscode.window.showInformationMessage('Web apps are disabled in settings.');
+        }
+        return marketplace.open();
+    });
+
+    register('vscodeos.webApps.install', async (url?: string) => {
+        if (!webAppsEnabled()) {
+            void vscode.window.showInformationMessage('Web apps are disabled in settings.');
+            return;
+        }
+        const address = typeof url === 'string' && url
+            ? url
+            : await vscode.window.showInputBox({
+                title: 'Install a web app',
+                prompt: 'The address of the site to install',
+                placeHolder: 'https://example.com',
+                ignoreFocusOut: true,
+            });
+        if (!address) {
+            return;
+        }
+        // Through the Marketplace panel so the progress and the result are shown
+        // in one place, whichever route asked for the install.
+        marketplace.open();
+        await marketplace.install(address);
+    });
+
+    register('vscodeos.webApps.launch', async (id?: string) => {
+        const installed = await webApps.list();
+        const app = typeof id === 'string' ? installed.find((candidate) => candidate.id === id) : undefined;
+        if (!app) {
+            void vscode.window.showWarningMessage('That web app is no longer installed.');
+            return;
+        }
+        if (app.openIn === 'editor') {
+            await vscode.commands.executeCommand('vscodeos.browser.open', app.url);
+            return;
+        }
+        if (!browserSys.open(app.url, {
+            preferred: config().get<string>('browser.command') || undefined,
+            appMode: true,
+        })) {
+            // No browser to give it a window of its own; the editor has one.
+            await vscode.commands.executeCommand('vscodeos.browser.open', app.url);
+        }
+    });
     // Kept as an alias rather than removed: it is in the README, in muscle
     // memory and in the command palette, and it still opens the same four rows.
     register('vscodeos.apps.updater', () => settings.open('updates'));
@@ -190,8 +280,11 @@ export function activate(context: vscode.ExtensionContext): void {
     register('vscodeos.settings.sound', () => settings.open('sound'));
     register('vscodeos.settings.storage', () => settings.open('storage'));
 
+    // The bin lost its activity bar view; the Files app has always listed it as
+    // a place, so the command opens it there rather than becoming a dead entry
+    // in the command palette.
     register('vscodeos.recycleBin.open', () =>
-        vscode.commands.executeCommand(`${RecycleBinProvider.viewId}.focus`));
+        vscode.commands.executeCommand('vscodeos.files.open', TRASH_PATH));
 
     register('vscodeos.firewall.open', () => {
         if (!config().get<boolean>('firewall.enabled', true)) {
@@ -200,21 +293,31 @@ export function activate(context: vscode.ExtensionContext): void {
         return firewall.open();
     });
 
-    // --- the Print key -----------------------------------------------------
+    // --- incoming URIs -----------------------------------------------------
 
-    // Openbox binds Print to /usr/local/bin/vscodeos-screenshot, which hands this
-    // URI to the running editor. Electron never sees the key itself on X11, so a
-    // contributed keybinding could not do this job.
+    // Two things outside the editor hand work back to it this way:
+    //
+    //   /screenshot  openbox's Print binding, /usr/local/bin/vscodeos-screenshot.
+    //                Electron never sees the Print key on X11, so a contributed
+    //                keybinding could not do this job.
+    //   /webapp      the desktop entry of a web app set to open in an editor
+    //                tab, started from any launcher on the machine.
     context.subscriptions.push(vscode.window.registerUriHandler({
         handleUri(uri: vscode.Uri) {
-            if (uri.path !== '/screenshot') {
-                log.debug(`ignoring unknown URI path ${uri.path}`);
+            const query = new URLSearchParams(uri.query);
+            if (uri.path === '/screenshot') {
+                void vscode.commands.executeCommand(
+                    query.get('mode') === 'region'
+                        ? 'vscodeos.apps.screenshotRegion'
+                        : 'vscodeos.apps.screenshot',
+                );
                 return;
             }
-            const mode = new URLSearchParams(uri.query).get('mode');
-            void vscode.commands.executeCommand(
-                mode === 'region' ? 'vscodeos.apps.screenshotRegion' : 'vscodeos.apps.screenshot',
-            );
+            if (uri.path === '/webapp') {
+                void vscode.commands.executeCommand('vscodeos.webApps.launch', query.get('id') ?? '');
+                return;
+            }
+            log.debug(`ignoring unknown URI path ${uri.path}`);
         },
     }));
 

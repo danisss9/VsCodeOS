@@ -33,6 +33,19 @@ import {
     parseXrandrOutputs,
 } from '../src/util/parse';
 import { codeUpdateUrl, normaliseAddress } from '../src/util/url';
+import { escapeDesktopExec, escapeDesktopValue, execArgv, parseDesktopEntry } from '../src/util/desktop';
+import {
+    appIdFromUrl,
+    documentTitle,
+    faviconHref,
+    manifestHref,
+    metaDescription,
+    normaliseSiteUrl,
+    pickIcon,
+    sameSite,
+    webAppFromManifest,
+    webAppFromPage,
+} from '../src/util/webapp';
 
 describe('calculator', () => {
     const cases: [string, string][] = [
@@ -627,5 +640,249 @@ describe('trashinfo files', () => {
 
     it('keeps a malformed escape rather than dropping the file', () => {
         assert.equal(parseTrashInfo('Path=/tmp/100%.txt')?.path, '/tmp/100%.txt');
+    });
+});
+
+describe('desktop entries', () => {
+    const firefox = [
+        '[Desktop Entry]',
+        'Version=1.0',
+        'Name=Firefox',
+        'Name[pt_BR]=Raposa de Fogo',
+        'Comment=Browse the World Wide Web',
+        'GenericName=Web Browser',
+        'Exec=/usr/lib/firefox/firefox %u',
+        'Icon=firefox',
+        'Terminal=false',
+        'Type=Application',
+        'Categories=Network;WebBrowser;',
+        'Keywords=Internet;WWW;Browser;',
+        '',
+        '[Desktop Action new-private-window]',
+        'Name=New Private Window',
+        'Exec=/usr/lib/firefox/firefox --private-window %u',
+    ].join('\n');
+
+    it('reads the fields the launcher needs', () => {
+        const entry = parseDesktopEntry(firefox);
+        assert.equal(entry?.name, 'Firefox');
+        assert.equal(entry?.comment, 'Browse the World Wide Web');
+        assert.equal(entry?.icon, 'firefox');
+        assert.equal(entry?.terminal, false);
+        assert.equal(entry?.noDisplay, false);
+        assert.deepEqual(entry?.categories, ['Network', 'WebBrowser']);
+        assert.deepEqual(entry?.keywords, ['Internet', 'WWW', 'Browser']);
+    });
+
+    // A translated name would be picked at random: there is no locale to match
+    // against here, so the unlocalised key has to win.
+    it('ignores localised keys', () => {
+        assert.equal(parseDesktopEntry(firefox)?.name, 'Firefox');
+    });
+
+    // The action groups have their own Name and Exec. Reading past the first
+    // group would launch "New Private Window" for every click on Firefox.
+    it('stops at the end of the [Desktop Entry] group', () => {
+        assert.equal(parseDesktopEntry(firefox)?.exec, '/usr/lib/firefox/firefox %u');
+    });
+
+    it('falls back to GenericName when there is no Comment', () => {
+        const entry = parseDesktopEntry('[Desktop Entry]\nName=Thing\nGenericName=A Thing\nExec=thing');
+        assert.equal(entry?.comment, 'A Thing');
+    });
+
+    it('rejects everything that is not a launchable application', () => {
+        assert.equal(parseDesktopEntry('[Desktop Entry]\nType=Link\nName=A\nExec=a\nURL=http://a'), undefined);
+        assert.equal(parseDesktopEntry('[Desktop Entry]\nType=Directory\nName=A\nExec=a'), undefined);
+        assert.equal(parseDesktopEntry('[Desktop Entry]\nName=A\nExec=a\nHidden=true'), undefined);
+        assert.equal(parseDesktopEntry('[Desktop Entry]\nName=A'), undefined);
+        assert.equal(parseDesktopEntry(''), undefined);
+    });
+
+    it('keeps NoDisplay as a flag rather than a rejection', () => {
+        // Hidden means deleted; NoDisplay only means "not in menus", and the
+        // caller decides. Conflating them would drop the wrong entries.
+        assert.equal(parseDesktopEntry('[Desktop Entry]\nName=A\nExec=a\nNoDisplay=true')?.noDisplay, true);
+    });
+
+    it('reads the marker on entries the web app installer wrote', () => {
+        const entry = parseDesktopEntry(
+            '[Desktop Entry]\nName=Excalidraw\nExec=chromium --app=https://excalidraw.com\nX-VSCodeOS-WebApp=excalidraw-com',
+        );
+        assert.equal(entry?.webAppId, 'excalidraw-com');
+    });
+
+    it('escapes values on the way back out', () => {
+        assert.equal(escapeDesktopValue('a\\b\nc'), 'a\\\\b\\nc');
+    });
+
+    // A lone % in Exec is a field code. A percent-encoded URL would reach the
+    // launcher as "%2" followed by "0b", GLib would reject the whole entry as
+    // having an unrecognised field code, and the app would vanish from every
+    // menu on the machine without saying why.
+    it('doubles the percent signs in an Exec line', () => {
+        assert.equal(
+            escapeDesktopExec('chromium --app=https://x.example/a%20b'),
+            'chromium --app=https://x.example/a%%20b',
+        );
+        assert.equal(escapeDesktopValue('a%20b'), 'a%20b');
+    });
+});
+
+describe('Exec lines', () => {
+    it('splits on whitespace', () => {
+        assert.deepEqual(execArgv('gimp-2.10'), ['gimp-2.10']);
+        assert.deepEqual(execArgv('  env  GDK_SCALE=2   inkscape '), ['env', 'GDK_SCALE=2', 'inkscape']);
+    });
+
+    it('keeps a quoted argument whole', () => {
+        assert.deepEqual(
+            execArgv('"/opt/My App/run" --flag "two words"'),
+            ['/opt/My App/run', '--flag', 'two words'],
+        );
+    });
+
+    it('honours backslash escapes inside quotes', () => {
+        assert.deepEqual(execArgv('sh -c "echo \\"hi\\""'), ['sh', '-c', 'echo "hi"']);
+    });
+
+    // A field code stands for the files being opened, and nothing is being
+    // opened: passing "%U" through would hand the program a literal argument.
+    it('drops field codes', () => {
+        assert.deepEqual(execArgv('firefox %u'), ['firefox']);
+        assert.deepEqual(execArgv('code --new-window %F'), ['code', '--new-window']);
+        assert.deepEqual(execArgv('thing --file=%f --keep'), ['thing', '--file=', '--keep']);
+    });
+
+    it('unescapes %% and never drops the program', () => {
+        assert.deepEqual(execArgv('report --scale 50%%'), ['report', '--scale', '50%']);
+        assert.deepEqual(execArgv('%f'), ['']);
+    });
+});
+
+describe('web app manifests', () => {
+    it('finds the manifest link whatever the attribute order', () => {
+        assert.equal(manifestHref('<link href="/app.webmanifest" rel="manifest">'), '/app.webmanifest');
+        assert.equal(manifestHref("<link rel='manifest' href='/m.json'>"), '/m.json');
+        assert.equal(manifestHref('<link rel="MANIFEST" href=/bare.json>'), '/bare.json');
+        assert.equal(manifestHref('<link rel="stylesheet" href="/a.css">'), undefined);
+    });
+
+    it('prefers a touch icon over a 16px favicon', () => {
+        const html = [
+            '<link rel="icon" sizes="16x16" href="/small.png">',
+            '<link rel="apple-touch-icon" href="/touch.png">',
+        ].join('');
+        assert.equal(faviconHref(html), '/touch.png');
+    });
+
+    it('reads the title and description', () => {
+        const html = '<title>  Excalidraw | Hand-drawn  </title>'
+            + '<meta name="description" content="Virtual whiteboard">';
+        assert.equal(documentTitle(html), 'Excalidraw | Hand-drawn');
+        assert.equal(metaDescription(html), 'Virtual whiteboard');
+    });
+
+    it('decodes entities in attribute values', () => {
+        assert.equal(manifestHref('<link rel="manifest" href="/m.json?a=1&amp;b=2">'), '/m.json?a=1&b=2');
+    });
+
+    // A maskable icon is drawn assuming the platform crops it to a circle, and
+    // nothing here crops: it would arrive with its corners cut off.
+    it('picks a plain icon near 192px over a maskable one', () => {
+        const picked = pickIcon([
+            { src: '/mask.png', sizes: '192x192', purpose: 'maskable' },
+            { src: '/plain.png', sizes: '192x192' },
+            { src: '/huge.png', sizes: '1024x1024' },
+        ]);
+        assert.equal(picked?.src, '/plain.png');
+    });
+
+    it('takes a maskable icon rather than none at all', () => {
+        assert.equal(pickIcon([{ src: '/mask.png', sizes: '512x512', purpose: 'maskable' }])?.src, '/mask.png');
+        assert.equal(pickIcon([]), undefined);
+    });
+
+    it('ignores monochrome icons, which are for notification badges', () => {
+        assert.equal(pickIcon([{ src: '/badge.png', sizes: '96x96', purpose: 'monochrome' }]), undefined);
+    });
+
+    it('derives an id from the host and path', () => {
+        assert.equal(appIdFromUrl('https://www.excalidraw.com/'), 'excalidraw-com');
+        assert.equal(appIdFromUrl('https://music.youtube.com'), 'music-youtube-com');
+        assert.equal(appIdFromUrl('https://example.com/apps/mail/'), 'example-com-apps-mail');
+    });
+
+    it('resolves a relative start_url and icon against the manifest', () => {
+        const info = webAppFromManifest(
+            {
+                name: 'Mail',
+                description: 'Read mail',
+                start_url: '/inbox',
+                icons: [{ src: 'icons/192.png', sizes: '192x192' }],
+            },
+            'https://example.com/static/app.webmanifest',
+            'https://example.com/',
+        );
+        assert.equal(info?.url, 'https://example.com/inbox');
+        assert.equal(info?.iconUrl, 'https://example.com/static/icons/192.png');
+        assert.equal(info?.id, 'example-com-inbox');
+        assert.equal(info?.fromManifest, true);
+    });
+
+    it('falls back to short_name and the host', () => {
+        const info = webAppFromManifest({ short_name: 'Sh' }, 'https://a.example/m.json', 'https://a.example/');
+        assert.equal(info?.name, 'Sh');
+        assert.equal(info?.description, 'a.example');
+    });
+
+    // Most of the web publishes no manifest; refusing those would mean refusing
+    // most of the web for the sake of a spec.
+    it('builds an app from a page with no manifest', () => {
+        const info = webAppFromPage(
+            '<title>Arch Wiki — the docs</title><link rel="icon" href="/favicon.png">',
+            'https://wiki.archlinux.org/',
+        );
+        assert.equal(info.name, 'Arch Wiki');
+        assert.equal(info.iconUrl, 'https://wiki.archlinux.org/favicon.png');
+        assert.equal(info.fromManifest, false);
+    });
+
+    it('guesses a favicon when the page names none', () => {
+        assert.equal(webAppFromPage('<title>A</title>', 'https://a.example/x').iconUrl, 'https://a.example/favicon.ico');
+    });
+
+    // An app installs at its manifest's start_url, which is routinely deeper
+    // than the address it was found at. Matching installs by id would leave the
+    // Marketplace offering to install Google Docs forever, and list it twice.
+    it('matches an installed app by site rather than by id', () => {
+        assert.ok(sameSite('https://docs.google.com/document/u/0/', 'https://docs.google.com'));
+        assert.ok(sameSite('https://a.example/x?y=1#z', 'https://a.example/'));
+        assert.equal(sameSite('https://a.example', 'https://b.example'), false);
+        // A subdomain is a different app: music.youtube.com is not youtube.com.
+        assert.equal(sameSite('https://music.youtube.com', 'https://www.youtube.com'), false);
+        assert.equal(sameSite('https://a.example', 'http://a.example'), false);
+        assert.equal(sameSite('not a url', 'https://a.example'), false);
+    });
+
+    it('does not confuse two apps on one host', () => {
+        assert.notEqual(appIdFromUrl('https://example.com/mail'), appIdFromUrl('https://example.com/chat'));
+    });
+});
+
+describe('install addresses', () => {
+    it('accepts URLs and bare hosts', () => {
+        assert.equal(normaliseSiteUrl('https://excalidraw.com'), 'https://excalidraw.com/');
+        assert.equal(normaliseSiteUrl('  excalidraw.com/x '), 'https://excalidraw.com/x');
+        assert.equal(normaliseSiteUrl('localhost:3000'), 'https://localhost:3000/');
+    });
+
+    // Unlike an address bar, this must not turn nonsense into a web search:
+    // installing a results page as an app is never what was meant.
+    it('rejects anything that is not an address', () => {
+        assert.equal(normaliseSiteUrl('how do I install a pwa'), undefined);
+        assert.equal(normaliseSiteUrl('file:///etc/passwd'), undefined);
+        assert.equal(normaliseSiteUrl('javascript:alert(1)'), undefined);
+        assert.equal(normaliseSiteUrl(''), undefined);
     });
 });

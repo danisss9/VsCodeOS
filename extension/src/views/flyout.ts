@@ -1,14 +1,19 @@
-// The flyouts: apps, power, calendar, power settings, volume, network,
-// bluetooth, music and notifications.
+// The tray cards: power, calendar, power settings, volume, network, bluetooth,
+// music and notifications.
 //
-// A VS Code extension cannot draw a popup anchored to a status bar item - there
-// is no such API, and the only floating-window route (moving an editor to an
-// auxiliary window) drags editor tab chrome along with it and cannot be sized or
-// placed. So these are webview views, which VS Code will host in the side bar or
-// in the bottom panel. The side bar is the default: the bottom panel is where
-// the terminal lives, and clicking the clock should not close it.
+// These are the *optional* half of the tray. The default is a quick pick
+// (src/statusbar/menus.ts), because a menu that takes the side bar away from
+// whatever was in it is not really a menu. What these can do that a quick pick
+// cannot is draw: a real brightness slider, a month grid, album art, a signal
+// meter. `vscodeos.flyout.location` chooses, and this provider is registered
+// either way because the setting can change without a reload.
 //
-// One provider serves all nine cards, because a container can only hold one
+// A webview view is the only surface available for that. There is no API to
+// anchor a popup to a status bar item, and the one floating-window route -
+// moving an editor to an auxiliary window - drags editor tab chrome with it and
+// cannot be sized or placed.
+//
+// One provider serves all eight cards, because a container can only hold one
 // view without splitting the space between them, and because they share their
 // whole refresh loop.
 
@@ -23,13 +28,11 @@ import * as network from '../sys/network';
 import * as power from '../sys/power';
 import { MprisMonitor } from '../sys/mpris';
 import type { NotificationServer } from '../sys/notifications';
-import { availableApps } from '../apps/registry';
 import { render, webviewOptions } from '../webview/html';
 import type { FlyoutKind, FlyoutState, HostMessage, WebviewMessage } from '../webview/protocol';
 import { log } from '../log';
 
 const TITLES: Record<FlyoutKind, string> = {
-    apps: 'Apps',
     power: 'Power',
     powersettings: 'Power Settings',
     calendar: 'Calendar',
@@ -44,11 +47,10 @@ const REFRESH_MS = 2000;
 
 /**
  * Cards the host has nothing new to say about. Polling them would rebuild the
- * card every two seconds for no reason - and in the launcher's case it would
- * rebuild the search box out from under whoever is typing into it. The calendar
- * ticks its own clock inside the webview.
+ * card every two seconds for no reason; the calendar ticks its own clock inside
+ * the webview.
  */
-const STATIC_KINDS: ReadonlySet<FlyoutKind> = new Set<FlyoutKind>(['apps', 'calendar']);
+const STATIC_KINDS: ReadonlySet<FlyoutKind> = new Set<FlyoutKind>(['calendar']);
 
 export type FlyoutLocation = 'sidebar' | 'panel';
 
@@ -58,7 +60,7 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
     static readonly panelViewId = 'vscodeos.flyout.panel';
 
     private view: vscode.WebviewView | undefined;
-    private kind: FlyoutKind = 'apps';
+    private kind: FlyoutKind = 'power';
     private timer: NodeJS.Timeout | undefined;
     private refreshing = false;
     private scanning = false;
@@ -106,10 +108,8 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
             this.view.title = TITLES[kind];
             this.view.show?.(true);
         }
-        // The launcher wants the keyboard, so somebody can start typing straight
-        // into its search box; every other card is read, not typed into, and
-        // stealing focus from the editor for those would be rude.
-        await vscode.commands.executeCommand(`${this.viewId}.focus`, { preserveFocus: kind !== 'apps' });
+        // These cards are read, not typed into, so the editor keeps the keyboard.
+        await vscode.commands.executeCommand(`${this.viewId}.focus`, { preserveFocus: true });
         this.post({ type: 'flyout', kind });
         // The kind decides whether this card polls at all.
         if (this.view?.visible) {
@@ -173,12 +173,8 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
         }
         this.refreshing = true;
         try {
-            const config = vscode.workspace.getConfiguration('vscodeos');
             const state: FlyoutState = { kind: this.kind, now: Date.now() };
 
-            if (this.kind === 'apps') {
-                state.apps = availableApps(config);
-            }
             if (this.kind === 'powersettings' || this.kind === 'power') {
                 state.battery = await battery.getState();
             }
@@ -395,14 +391,6 @@ export class FlyoutProvider implements vscode.WebviewViewProvider {
                 await mpris.seek(message.seconds);
                 await this.refresh();
                 return;
-
-            case 'launchMusic': {
-                const url = message.service === 'spotify'
-                    ? 'https://open.spotify.com'
-                    : 'https://music.youtube.com';
-                await vscode.commands.executeCommand('vscodeos.browser.open', url);
-                return;
-            }
 
             case 'dismissNotification':
                 this.notifications.dismiss(message.id);

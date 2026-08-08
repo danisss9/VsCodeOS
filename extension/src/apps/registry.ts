@@ -12,7 +12,7 @@
 import type * as vscode from 'vscode';
 import type { AppEntry } from '../webview/protocol';
 
-export interface AppDescriptor extends AppEntry {
+export interface AppDescriptor extends Omit<AppEntry, 'source'> {
     enabled?: (config: vscode.WorkspaceConfiguration) => boolean;
 }
 
@@ -48,11 +48,20 @@ export const APPS: AppDescriptor[] = [
     {
         id: 'music',
         title: 'Music',
-        description: 'Spotify and YouTube Music',
+        description: 'Play the music on this computer',
         icon: 'music',
-        command: 'vscodeos.music.show',
-        keywords: ['spotify', 'youtube', 'player'],
+        command: 'vscodeos.music.open',
+        keywords: ['audio', 'songs', 'album', 'library', 'mp3', 'flac', 'playlist'],
         enabled: (config) => config.get<boolean>('music.enabled', true),
+    },
+    {
+        id: 'marketplace',
+        title: 'Marketplace',
+        description: 'Find and install web apps',
+        icon: 'store',
+        command: 'vscodeos.marketplace.open',
+        keywords: ['store', 'install', 'pwa', 'web app', 'apps', 'add'],
+        enabled: (config) => config.get<boolean>('webApps.enabled', true),
     },
     {
         id: 'calculator',
@@ -148,5 +157,7 @@ export const APPS: AppDescriptor[] = [
 
 /** The launcher's list: everything whose feature switch is on, as plain data. */
 export function availableApps(config: vscode.WorkspaceConfiguration): AppEntry[] {
-    return APPS.filter((app) => app.enabled?.(config) ?? true).map(({ enabled: _enabled, ...entry }) => entry);
+    return APPS
+        .filter((app) => app.enabled?.(config) ?? true)
+        .map(({ enabled: _enabled, ...entry }) => ({ ...entry, source: 'builtin' as const }));
 }

@@ -9,8 +9,7 @@
 // Web" and "YouTube Music" feel like apps rather than tabs - and Chromium
 // exports MPRIS for them, so the status bar transport controls them.
 
-import { spawn } from 'node:child_process';
-import { which } from './exec';
+import { launch, which } from './exec';
 import { log } from '../log';
 
 const CANDIDATES = [
@@ -70,29 +69,15 @@ export function open(url: string, options: { preferred?: string; appMode?: boole
         return undefined;
     }
     const args = options.appMode && browser.chromiumLike ? [`--app=${url}`] : [url];
-    try {
-        const child = spawn(browser.command, args, { detached: true, stdio: 'ignore' });
-        child.unref();
-        log.info(`launched ${browser.name}: ${url}`);
-        return browser;
-    } catch (error) {
-        log.error(`could not launch ${browser.name}`, error);
+    if (!launch(browser.command, args)) {
         return undefined;
     }
+    log.info(`launched ${browser.name}: ${url}`);
+    return browser;
 }
 
 /** Hand a file or folder to the desktop's default handler. */
 export function openWithDefaultApp(path: string): boolean {
     const opener = which('xdg-open');
-    if (!opener) {
-        return false;
-    }
-    try {
-        const child = spawn(opener, [path], { detached: true, stdio: 'ignore' });
-        child.unref();
-        return true;
-    } catch (error) {
-        log.error('xdg-open failed', error);
-        return false;
-    }
+    return opener ? launch(opener, [path]) : false;
 }

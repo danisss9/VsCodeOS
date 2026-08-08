@@ -68,6 +68,37 @@ export function start(command: string, args: string[] = [], options: { cwd?: str
     return spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: options.cwd });
 }
 
+/**
+ * Start a program and let go of it: a browser window, another desktop's app.
+ *
+ * Detached and unref'd, which is the difference that matters - a child in this
+ * process group dies with the editor, and a launcher whose apps close when the
+ * editor restarts would be a strange launcher. Its output goes nowhere, because
+ * there is nobody to read it.
+ *
+ * The binary is resolved first, because `spawn` does not fail here for one that
+ * is missing: ENOENT arrives later as an `error` event, which would be an
+ * unhandled emitter error in the extension host, and the caller would already
+ * have been told the launch worked. `error` is still listened for, since the
+ * check and the exec are not atomic.
+ */
+export function launch(command: string, args: string[] = []): boolean {
+    const resolved = which(command);
+    if (!resolved) {
+        log.error(`could not launch ${command}: not found`);
+        return false;
+    }
+    try {
+        const child = spawn(resolved, args, { detached: true, stdio: 'ignore' });
+        child.on('error', (error) => log.error(`${command} exited immediately`, error));
+        child.unref();
+        return true;
+    } catch (error) {
+        log.error(`could not launch ${command}`, error);
+        return false;
+    }
+}
+
 const whichCache = new Map<string, string | undefined>();
 
 /**

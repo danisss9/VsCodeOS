@@ -31,30 +31,95 @@ export type { NotificationRecord } from '../sys/notifications';
 export type { ProcessInfo, SystemInfo } from '../sys/procfs';
 export type { StorageState, MountUsage, DirectoryUsage, CleanupCategory, CleanupId } from '../sys/storage';
 
+/**
+ * The tray menus. No 'apps' any more: the launcher is a view of its own in the
+ * activity bar (src/views/allApps.ts), not a card in the tray.
+ */
 export type FlyoutKind =
-    | 'apps' | 'power' | 'powersettings' | 'calendar'
+    | 'power' | 'powersettings' | 'calendar'
     | 'volume' | 'network' | 'bluetooth' | 'music' | 'notifications';
 
+/** Where an entry in All Apps came from, which decides what can be done to it. */
+export type AppSource = 'builtin' | 'webapp' | 'system';
+
+/** Where an installed web app opens. */
+export type OpenIn = 'window' | 'editor';
+
 /**
- * One entry in the app launcher. Deliberately plain data: the registry that
- * produces these lives on the host and knows how to test whether an app is
- * enabled, but only the serialisable half crosses into the webview.
+ * One entry in the app launcher. Deliberately plain data: the host knows how to
+ * test whether an app is enabled, where its icon file is and how to start it,
+ * but only the serialisable half crosses into the webview.
  */
 export interface AppEntry {
     id: string;
     title: string;
     description: string;
-    /** Key in media/src/lib/icons.ts. */
+    /** Key in media/src/lib/icons.ts, used when there is no `iconUrl`. */
     icon: string;
+    /** Command to run for a built-in; empty for the other two sources. */
     command: string;
     /** Extra search terms, for words that are not in the title or description. */
     keywords?: string[];
+    source: AppSource;
+    /** A real icon, as a data URI: the web app's, or the desktop entry's. */
+    iconUrl?: string;
+    /** Web apps only: this shell installed it, so this shell can remove it. */
+    removable?: boolean;
+    /** Web apps only. */
+    openIn?: OpenIn;
+    url?: string;
+}
+
+export interface AllAppsState {
+    apps: AppEntry[];
+    /** False when the .desktop scan is off, so the view can say so. */
+    systemApps: boolean;
+    webApps: boolean;
+}
+
+/** One row in the Marketplace: a catalogue entry, or an app already installed. */
+export interface MarketplaceItem {
+    id: string;
+    /** The web app id it would install as, so "installed" can be answered. */
+    appId: string;
+    name: string;
+    description: string;
+    url: string;
+    category: string;
+    keywords?: string[];
+    installed: boolean;
+}
+
+export interface MarketplaceState {
+    category: string;
+    categories: string[];
+    items: MarketplaceItem[];
+    /** False when there is no Chromium-like browser to run a web app in. */
+    canOpenWindows: boolean;
+}
+
+/** One playable file in the music library. */
+export interface Track {
+    name: string;
+    path: string;
+    /** Webview URI; the library directory is a fixed local resource root. */
+    uri: string;
+    /** The containing folder's name, which stands in for an album. */
+    folder: string;
+}
+
+export interface MusicLibrary {
+    directory: string;
+    tracks: Track[];
+    /** Set when the directory could not be read at all. */
+    error?: string;
+    /** True when the scan stopped at its cap rather than at the end. */
+    truncated?: boolean;
 }
 
 export interface FlyoutState {
     kind: FlyoutKind;
     now: number;
-    apps?: AppEntry[];
     battery?: BatteryState;
     audio?: AudioState;
     network?: NetworkState;
@@ -154,6 +219,8 @@ export interface BrowserState {
     canGoBack: boolean;
     canGoForward: boolean;
     tabs: BrowserTab[];
+    /** Set when the page declares a web app manifest, so it can be installed. */
+    installable?: { url: string; name: string };
 }
 
 /** Host -> webview. */
@@ -165,6 +232,13 @@ export type HostMessage =
     | { type: 'tasks'; system: SystemInfo; processes: ProcessInfo[] }
     | { type: 'taskError'; message: string }
     | { type: 'files'; path: string; entries: FileEntry[]; places: Place[]; error?: string }
+    // all apps
+    | { type: 'apps'; state: AllAppsState }
+    // marketplace
+    | { type: 'marketplace'; state: MarketplaceState }
+    | { type: 'marketplaceBusy'; label?: string }
+    // music player
+    | { type: 'music'; library: MusicLibrary }
     | { type: 'shot'; path: string; uri: string }
     | { type: 'shotError'; message: string }
     | { type: 'recording'; state: 'idle' | 'recording'; path?: string; uri?: string; startedAt?: number }
@@ -217,9 +291,19 @@ export type WebviewMessage =
     | { type: 'energySaver'; enabled: boolean }
     | { type: 'transport'; action: 'playPause' | 'next' | 'previous' }
     | { type: 'seek'; seconds: number }
-    | { type: 'launchMusic'; service: 'spotify' | 'ytmusic' }
     | { type: 'command'; command: string }
     | { type: 'closeFlyout' }
+    // all apps
+    | { type: 'launchApp'; source: AppSource; id: string }
+    | { type: 'uninstallApp'; id: string; name: string }
+    | { type: 'setAppOpenIn'; id: string; openIn: OpenIn }
+    | { type: 'refreshApps' }
+    // marketplace
+    | { type: 'marketplaceCategory'; category: string }
+    | { type: 'installWebApp'; url: string }
+    // music player
+    | { type: 'musicRefresh' }
+    | { type: 'musicChooseFolder' }
     // notifications
     | { type: 'dismissNotification'; id: number }
     | { type: 'clearNotifications' }
@@ -264,6 +348,7 @@ export type WebviewMessage =
     | { type: 'browserInput'; input: BrowserInput }
     | { type: 'browserTab'; action: 'new' | 'close' | 'select'; id?: string }
     | { type: 'browserExternal' }
+    | { type: 'browserInstallApp' }
     // firewall
     | { type: 'firewallRefresh' }
     | { type: 'firewallToggle'; enabled: boolean }

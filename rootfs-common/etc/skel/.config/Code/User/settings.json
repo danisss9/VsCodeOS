@@ -49,11 +49,20 @@
   "vscodeos.clock.dateFormat": "dd/MM/yyyy",
   "vscodeos.taskManager.enabled": true,
   "vscodeos.files.enabled": true,
-  "vscodeos.recycleBin.enabled": true,
   "vscodeos.music.enabled": true,
+  "vscodeos.music.directory": "~/Music",
   "vscodeos.apps.enabled": true,
   "vscodeos.firewall.enabled": true,
   "vscodeos.power.confirm": true,
+
+  // All Apps lists the shell's own apps, the web apps installed from the
+  // Marketplace, and everything else on the machine that ships a .desktop file.
+  "vscodeos.allApps.systemApps": true,
+  "vscodeos.webApps.enabled": true,
+
+  // The tray menus open as popups over the editor. "sidebar" and "panel" swap
+  // them for the richer webview cards, at the cost of a container.
+  "vscodeos.flyout.location": "popup",
 
   // The shell serves org.freedesktop.Notifications, so notify-send and any
   // application's notifications become editor notifications. Nothing else on

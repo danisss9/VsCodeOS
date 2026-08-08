@@ -50,6 +50,17 @@ const navButton = (glyph: string, title: string, action: 'back' | 'forward' | 'r
 const backButton = navButton('chevronLeft', 'Back', 'back');
 const forwardButton = navButton('chevronRight', 'Forward', 'forward');
 
+// Shown only for a page that declares a web app manifest, which is the browser's
+// own answer to "can this be installed?" - the same question Chrome puts in its
+// address bar, and the reason this button lives here rather than in the
+// Marketplace, where finding out would mean fetching the page a second time.
+const installButton = h('button', {
+    class: 'button primary',
+    title: 'Install this site as an app',
+    hidden: true,
+    on: { click: () => post({ type: 'browserInstallApp' }) },
+}, h('span', { html: icon('download', 15) }), 'Install app');
+
 clear(root()).append(h('div', { class: 'app' },
     tabsRow,
     h('div', { class: 'toolbar browser-toolbar' },
@@ -58,6 +69,7 @@ clear(root()).append(h('div', { class: 'app' },
         navButton('refresh', 'Reload', 'reload'),
         navButton('home', 'Homepage', 'home'),
         address,
+        installButton,
         h('button', {
             class: 'button',
             title: 'Open this page in a real browser window',
@@ -85,6 +97,10 @@ onMessage<HostMessage>((message) => {
         }
         backButton.disabled = !state.canGoBack;
         forwardButton.disabled = !state.canGoForward;
+        installButton.hidden = !state.installable;
+        if (state.installable) {
+            installButton.title = `Install ${state.installable.name} as an app`;
+        }
         renderTabs();
         return;
     }

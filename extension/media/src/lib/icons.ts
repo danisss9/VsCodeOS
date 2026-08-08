@@ -77,6 +77,13 @@ const PATHS: Record<string, string> = {
     archive: 'M3 6.5h18v4H3v-4zM4.5 10.5v9h15v-9M10 14h4',
     keyboard: 'M2.5 6.5h19v11h-19v-11zM6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14h12',
     display: 'M3 4.5h18v11H3v-4.5zM8.5 20h7M12 15.5V20',
+    // A shop front with its awning: the Marketplace.
+    store: 'M4 9.5h16V20H4V9.5zM2.5 9.5L4.5 4h15l2 5.5M9.5 20v-6h5v6',
+    // A box seen in three-quarter view: something installed by the package manager.
+    package: 'M12 2.5l8.5 4.75v9.5L12 21.5l-8.5-4.75v-9.5L12 2.5zM3.5 7.25L12 12l8.5-4.75M12 12v9.5',
+    shuffle: 'M3 7h3.5l3 4M3 17h3.5L14 6.5h4M14 17.5h4M16 3.5L19.5 7 16 10.5M16 14.5l3.5 3.5-3.5 3.5',
+    repeat: 'M4 11V9a3 3 0 0 1 3-3h13M17 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H4M7 21l-3-3 3-3',
+    link: 'M10.5 13.5a4.5 4.5 0 0 0 6.4 0l2.6-2.6a4.5 4.5 0 0 0-6.4-6.4l-1.3 1.3M13.5 10.5a4.5 4.5 0 0 0-6.4 0l-2.6 2.6a4.5 4.5 0 0 0 6.4 6.4l1.3-1.3',
 };
 
 /** Solid glyphs, drawn with a fill instead of a stroke. */
