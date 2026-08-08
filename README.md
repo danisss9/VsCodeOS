@@ -62,14 +62,16 @@ lives in **VsCodeOsCore** — a VS Code extension that ships *inside* the editor
 rather than being installed from the Marketplace. Its source is in
 [`extension/`](extension/), and it adds:
 
-- **An all-apps button**, in the bottom-left corner — a searchable grid of every
-  program on the machine, the way a start menu works.
+- **All Apps**, in the activity bar — a searchable grid of everything on the
+  machine, the way a start menu works: the shell's own apps, the web apps you
+  installed, and every program that ships a `.desktop` file. Right-click a web
+  app to change where it opens or to uninstall it.
 - **A tray**, at the right end of the status bar. Left to right: notifications,
   now playing, battery, volume, network, Bluetooth, the clock and date, and the
-  power button in the corner. Each one opens a card in the side bar. (VS Code has no API for
-  a popup anchored to a status bar item; the side bar is the closest thing that
-  does not take the terminal panel away from you. `vscodeos.flyout.location`
-  puts the cards back in the bottom panel if you prefer them there.)
+  power button in the corner. Each one opens a popup over the editor. (VS Code
+  has no API for a popup *anchored* to a status bar item, so these are quick
+  picks, which open at the top of the window. `vscodeos.flyout.location` swaps
+  them for the richer webview cards, in the activity bar or the bottom panel.)
 - **Power** — sleep, restart, shut down and log out, with a confirmation.
 - **Calendar** — a month grid with today highlighted, on the clock.
 - **Power settings**, on the battery — energy saver, a brightness slider whose
@@ -89,24 +91,33 @@ rather than being installed from the Marketplace. Its source is in
   claims that name, so without this those notifications simply vanished.
 - **Task Manager**, in the activity bar — processes with CPU and memory, per-core
   meters, load average, uptime and CPU temperature, sortable and filterable, with
-  End task.
+  End task. It is the only thing in the System container.
 - **Files** — a graphical file explorer with a places sidebar, grid and list
   views, rename, trash, copy and paste. **Everything opens in the editor**: text
   in the text editor, images in the built-in preview, video and audio in the
   media player. **Archives browse like folders** — zip, tar and everything
   compressed — with Extract here, Extract to… and Compress.
-- **Recycle Bin** — in the Files app's places list and in the activity bar,
-  sharing one backend. Shows what you deleted, where it came from and when, with
-  Restore, Delete permanently and Empty. Before this, "Move to trash" put files
-  somewhere nothing could read them back from.
+- **Recycle Bin** — a place in the Files app, browsed with the same columns and
+  the same selection as any other folder. Shows what you deleted, where it came
+  from and when, with Restore, Delete permanently and Empty. Before this, "Move
+  to trash" put files somewhere nothing could read them back from.
 - **Browser** — a real browser rendered *inside* an editor tab, with tabs, an
   address bar and history. It drives a headless Chromium and streams its picture
   back, which is the only way to show sites that refuse to be framed. "Open in
   browser" hands the page to a real window when that is the better answer.
 - **Media Player** — video and audio in a tab, with a playlist of whatever else
   is in the folder.
-- **Music** — transport controls for whatever is playing, over MPRIS, plus
-  one-click launchers for Spotify Web and YouTube Music.
+- **Music** — an offline player for the files in `~/Music`: a searchable
+  library, a queue, shuffle, repeat and a scrubber. The tray's music item keeps
+  the MPRIS transport, so it still controls a browser or `mpv` playing in the
+  background.
+- **Marketplace** — find and install web apps. A catalogue of well-known ones
+  ships with the shell, so it is browsable with no network, and any other site
+  can be installed by pasting its address. Installing reads the site's own app
+  manifest for its name and icon, and asks whether it should open in a window of
+  its own or in an editor tab. The Browser grows an **Install app** button on
+  any page that publishes a manifest. Installed apps appear in All Apps and get
+  a `.desktop` entry, so the rest of the machine can see them too.
 - **System Settings** — Display (resolution, refresh rate, orientation, which
   screen is primary, with a fifteen-second revert in case the monitor cannot
   show the mode), Keyboard (layout and key repeat), Sound (which speakers play
@@ -130,12 +141,13 @@ There is deliberately no Notepad: the editor is a better one, and the file
 manager now opens text in it.
 
 Two honest limits, both imposed by VS Code rather than by this project:
-**Spotify audio cannot play inside the editor** (VS Code's Electron ships no
-Widevine, so the Web Playback SDK cannot work — which is exactly why the player
-controls a real browser window instead), and **Microsoft Edge is not on either
-image** (it is AUR-only on Arch, and Microsoft publishes no ARM64 Linux build at
-all, so the Pi could never have matched). Everything browser-shaped prefers
-`microsoft-edge-stable` if you install it yourself, and falls back to Chromium.
+**DRM audio and video cannot play inside the editor** (VS Code's Electron ships
+no Widevine, so Spotify's Web Playback SDK cannot work — which is why a web app
+installed with its own window is a real Chromium and works), and **Microsoft
+Edge is not on either image** (it is AUR-only on Arch, and Microsoft publishes no
+ARM64 Linux build at all, so the Pi could never have matched). Everything
+browser-shaped prefers `microsoft-edge-stable` if you install it yourself, and
+falls back to Chromium.
 
 Every part of the shell can be turned off individually in settings under
 `vscodeos.*`; [`extension/README.md`](extension/README.md) has the details.
@@ -250,7 +262,7 @@ VSCODEOS_RESPAWN=1                    # 0 = do not relaunch when VS Code exits
 ## Day-to-day
 
 The **Updates** pane of **System Settings** does all of this with buttons — open
-it from the all-apps button in the bottom-left corner. By hand:
+it from **All Apps** in the activity bar. By hand:
 
 ```bash
 sudo pacman -Syu            # update the Arch base

@@ -33,20 +33,15 @@ const PRIORITY = {
     power: -Number.MAX_VALUE,
 } as const;
 
-/**
- * The launcher, on the other side of the bar. Left alignment reads the other
- * way round - a higher priority is further left - so this is a large positive
- * number to put the button in the corner. The one thing that can still sit left
- * of it is the remote indicator, and that is hidden on a machine with no remote
- * extension installed, which is both images.
- */
-const LAUNCHER_PRIORITY = 100000;
+// The all-apps button used to sit in the other corner, at a large positive
+// priority. It is a view in the activity bar now: a start menu is not a tray
+// item, and the corner of a status bar is a poor place to keep the one control
+// that reaches everything on the machine.
 
 const SLOW_TICK_MS = 5000;
 
 export class StatusBar implements vscode.Disposable {
     private readonly items: vscode.StatusBarItem[] = [];
-    private readonly launcher: vscode.StatusBarItem;
     private readonly power: vscode.StatusBarItem;
     private readonly clock: vscode.StatusBarItem;
     private readonly batteryItem: vscode.StatusBarItem;
@@ -80,16 +75,6 @@ export class StatusBar implements vscode.Disposable {
         this.clock = this.create('clock', PRIORITY.clock, 'vscodeos.calendar.show', 'Date and time');
         this.power = this.create('power', PRIORITY.power, 'vscodeos.power.menu', 'Power');
 
-        this.launcher = this.create(
-            'apps',
-            LAUNCHER_PRIORITY,
-            'vscodeos.apps.menu',
-            'All apps',
-            vscode.StatusBarAlignment.Left,
-        );
-        this.launcher.text = '$(menu)';
-        this.launcher.tooltip = new vscode.MarkdownString('**All apps** — every program on this machine');
-
         // No codicon is a power symbol - the nearest of the 753 is circle-slash,
         // which is a "no entry" sign - so this one comes from the extension's own
         // icon font, registered under contributes.icons in package.json. It is
@@ -101,14 +86,12 @@ export class StatusBar implements vscode.Disposable {
         this.notifications.on('change', () => this.renderNotifications());
     }
 
-    private create(
-        id: string,
-        priority: number,
-        command: string,
-        name: string,
-        alignment = vscode.StatusBarAlignment.Right,
-    ): vscode.StatusBarItem {
-        const item = vscode.window.createStatusBarItem(`vscodeos.${id}`, alignment, priority);
+    private create(id: string, priority: number, command: string, name: string): vscode.StatusBarItem {
+        const item = vscode.window.createStatusBarItem(
+            `vscodeos.${id}`,
+            vscode.StatusBarAlignment.Right,
+            priority,
+        );
         item.name = `VS Code OS: ${name}`;
         item.command = command;
         this.items.push(item);
@@ -116,7 +99,6 @@ export class StatusBar implements vscode.Disposable {
     }
 
     start(): void {
-        this.launcher.show();
         this.power.show();
         this.tickClock();
         void this.tickSlow();

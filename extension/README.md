@@ -12,31 +12,64 @@ accidentally uninstalled.
 
 | | |
 | --- | --- |
-| **Launcher** | An all-apps button in the bottom-left corner: a searchable grid of every program |
+| **All Apps** | An activity bar view: a searchable grid of the shell's apps, the installed web apps and every `.desktop` file on the machine |
+| **Marketplace** | Find and install web apps (PWAs) from a bundled catalogue, or from any address |
 | **Tray** | Notifications, now-playing, battery, volume, network, Bluetooth, clock and date, and the power button, at the right end of the status bar |
-| **Flyouts** | Apps, power, calendar, power settings, volume mixer, network picker, Bluetooth, music player and notifications |
+| **Tray menus** | Power, calendar, power settings, volume mixer, network picker, Bluetooth, music and notifications — quick picks by default |
 | **Notifications** | Serves `org.freedesktop.Notifications`, turning every desktop notification on the machine into an editor notification |
 | **Task Manager** | Processes with CPU/RAM, per-core meters, load, uptime and thermals, in the activity bar |
-| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste, and archives that browse like folders. Everything opens in the editor |
-| **Recycle Bin** | Restore or permanently delete what the Files app trashed, from the places list or the activity bar |
-| **Browser** | A headless Chromium streamed into an editor tab, with tabs, an address bar and history |
+| **Files** | A graphical file explorer: places sidebar, grid/list, rename, trash, copy/paste, and archives that browse like folders. Everything opens in the editor. The Recycle Bin is one of its places |
+| **Browser** | A headless Chromium streamed into an editor tab, with tabs, an address bar, history and an Install app button |
 | **Media Player** | Video and audio in a tab, with a folder playlist |
-| **Music** | MPRIS transport for whatever is playing, plus launchers for Spotify Web and YouTube Music |
+| **Music** | An offline player for `~/Music`: library, search, queue, shuffle and repeat |
 | **System Settings** | Display, keyboard, sound devices, storage, updates and about, in one app |
 | **Firewall** | A GUI over `ufw`: master switch, default policies, rules and presets |
 | **Apps** | Calculator, Paint, Screenshot and Voice Recorder |
 
 Every feature is behind a `vscodeos.<feature>.enabled` setting, all defaulting to
-on. The all-apps button, or `VS Code OS: All Apps…` in the command palette,
-lists everything.
+on. The All Apps view, or `VS Code OS: All Apps…` in the command palette, lists
+everything.
 
-### Four things worth knowing
+### Six things worth knowing
 
-**The flyouts are not popups.** VS Code has no API to anchor one to a status bar
-item, and the only floating-window route — moving an editor to an auxiliary
-window — brings editor tab chrome with it and cannot be sized or placed. So they
-are a webview view, in the side bar by default. The bottom panel, where they used
-to live, is where the terminal is; `vscodeos.flyout.location` puts them back.
+**The tray menus are quick picks.** VS Code has no API to anchor a popup to a
+status bar item and never has — but that was the wrong thing to conclude from. A
+quick pick *is* a popup: it floats over the editor, takes the keyboard and closes
+on Escape. What it cannot be is *anchored*, which is a much smaller loss than
+taking the side bar away every time somebody wants to see the clock. Items carry
+a `keepOpen` flag so a toggle acts and the list redraws in place, which is what
+makes a volume level or a Wi-Fi switch usable.
+
+The webview cards those replaced are still there, behind
+`vscodeos.flyout.location` — they can draw a real slider, a month grid and album
+art, which a list of rows cannot. `sidebar` puts them in a Tray container in the
+activity bar; `panel` puts them in the bottom panel, where the terminal is.
+
+They cannot go in the **secondary** side bar, on the right:
+`viewsContainers.secondarySideBar` is gated behind the proposed
+`contribSecondarySideBar` API, and this ships as a built-in (see
+[Packaging](#packaging)). Dragging the container there by hand works, and VS Code
+remembers it.
+
+**Web apps are a URL, an icon and a desktop entry.** `src/sys/webapps.ts` fetches
+a site, reads its `<link rel="manifest">` (falling back to the page's `<title>`
+and favicon, because most of the web publishes no manifest), keeps a copy of the
+icon and writes `~/.local/share/applications/vscodeos-webapp-<id>.desktop` so the
+app exists to the rest of the machine and not only to this shell. That entry is
+marked `X-VSCodeOS-WebApp`, which is how the `.desktop` scan in
+`src/sys/desktopApps.ts` knows to leave those to the web app list instead of
+showing every one of them twice.
+
+Where an app opens is chosen when it is installed: a Chromium `--app=` window
+(frameless, single-site, and it exports MPRIS so the tray transport controls it)
+or an editor tab in the built-in browser. The desktop entry of an editor-mode app
+runs `code --open-url vscode://vscodeos.vscodeos-core/webapp?id=…`, the same
+route the Print key uses, so starting it from any launcher lands in the editor.
+
+**Only web apps can be uninstalled.** They are the only thing this shell
+installed. Removing a package would mean a password-free `pacman -Rns` for
+arbitrary package names — a new path to root for the sake of a context menu item,
+and not a trade worth making. Native entries are listed and labelled instead.
 
 **The browser is a screencast.** Every site worth visiting sends
 `X-Frame-Options`, which is why VS Code's own Simple Browser shows a blank
@@ -90,13 +123,13 @@ npm test           # node:test, no framework to install
 npm run package    # production bundles
 ```
 
-CI runs all three before either image build starts. The tests cover the two
-self-contained modules — the calculator's expression evaluator and the
-formatters — because everything else here talks to `/proc`, `nmcli` or the
-VS Code API and is verified by running the thing. That is a narrow surface, but
-it is the surface where a mistake is invisible: unary minus alone accounted for
-three real bugs (`5 − −3`, `2 × −3`, and the `±` key emitting an ASCII hyphen
-the tokenizer did not handle).
+CI runs all three before either image build starts. The tests cover the
+self-contained modules under `src/util` and the calculator's evaluator, because
+everything else here talks to `/proc`, `nmcli` or the VS Code API and is verified
+by running the thing. That is a narrow surface, but it is the surface where a
+mistake is invisible: unary minus alone accounted for three real bugs (`5 − −3`,
+`2 × −3`, and the `±` key emitting an ASCII hyphen the tokenizer did not handle),
+and an `Exec=` line split the wrong way launches the wrong program.
 
 ## Layout
 
@@ -104,12 +137,13 @@ the tokenizer did not handle).
 src/
   extension.ts     activate(): wires everything, one DisposableStore
   sys/             the only code that touches the machine
-  statusbar/       the tray, and the priority ladder that orders it
-  views/           flyout (side bar), task manager and recycle bin (activity
-                   bar) providers
-  apps/            registry, file explorer, browser, media player, firewall,
-                   system settings (settings/updates.ts inside it), mini-apps,
-                   panel plumbing
+  statusbar/       the tray and the priority ladder that orders it, plus
+                   menus.ts — the quick pick version of every tray menu
+  views/           all apps and task manager (activity bar), flyout (the
+                   optional tray cards) providers
+  apps/            registry, file explorer, browser, marketplace, media player,
+                   music player, firewall, system settings (settings/updates.ts
+                   inside it), mini-apps, panel plumbing, the web app catalogue
   webview/         HTML shell + the host↔webview message types
 media/
   src/             one TypeScript entry point per page, shared code in src/lib
@@ -157,10 +191,16 @@ control.
 
 These are VS Code and Electron limits, not missing work:
 
-- **No popup anchored to a status bar item.** There is no such API. The flyouts
-  are a webview view in the bottom panel, which is why they open above the
-  status bar; the panel's height is workbench layout state with no API, so a
-  flyout opens at whatever height the panel was last left at.
+- **No popup *anchored* to a status bar item.** There is no such API. The tray
+  menus are quick picks, which open centred at the top of the window rather than
+  over the item that was clicked. The webview cards behind
+  `vscodeos.flyout.location` have the matching limit: the panel's height is
+  workbench layout state with no API, so a card opens at whatever height the
+  panel was last left at.
+- **Extensions cannot put a view container on the right.**
+  `viewsContainers.secondarySideBar` is behind the proposed
+  `contribSecondarySideBar` API, which a built-in cannot use. Users can drag a
+  container there themselves and VS Code remembers it.
 - **The power button is only rightmost because of a setting.** The notifications
   bell registers at `NEGATIVE_INFINITY` and extension priorities are clamped to
   `-Number.MAX_VALUE`, so no extension can outrank it. The images ship
@@ -169,11 +209,16 @@ These are VS Code and Electron limits, not missing work:
 - **No microphone in a webview.** VS Code's Electron main process omits `media`
   from the permissions it grants webviews, so `getUserMedia({audio:true})` is
   denied outright. The recorder is a `pw-record` subprocess with a webview UI.
-- **Spotify audio cannot play inside VS Code.** Stock Electron ships no Widevine
-  CDM, so the Web Playback SDK cannot decrypt anything, and `open.spotify.com`
-  refuses to be framed. This is why the music player controls real players over
-  MPRIS and launches the services as browser app windows — Chromium exports
-  MPRIS, so playback there is fully controllable from the tray.
+- **DRM audio and video cannot play inside VS Code.** Stock Electron ships no
+  Widevine CDM, so Spotify's Web Playback SDK cannot decrypt anything, and
+  `open.spotify.com` refuses to be framed either. A web app installed from the
+  Marketplace and set to open in *its own window* works, because that is a real
+  Chromium — which is also why that is the option offered for the streaming
+  services. The Music app plays local files and needs none of this.
+- **No tags on local music.** The Music app's track names are file names and its
+  "albums" are folder names. Reading ID3 and Vorbis comments means a tag parsing
+  dependency, which is not a thing to add to an extension that ships inside an
+  ISO for one line of a list row.
 - **Root-owned processes cannot be ended directly.** There is no polkit
   authentication agent in the kiosk session, so `pkexec` has nothing to prompt
   with. End task on another user's process opens a terminal with

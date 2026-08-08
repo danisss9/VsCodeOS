@@ -25,6 +25,7 @@ import * as path from 'node:path';
 // to resolve the same way.
 import type { Browser as PuppeteerBrowser, CDPSession, Page } from 'puppeteer-core' with { 'resolution-mode': 'import' };
 import { detect, open as openExternally } from '../sys/browser';
+import type { WebAppService } from '../sys/webapps';
 import { normaliseAddress } from '../util/url';
 import { AppPanels } from './panels';
 import type { AppOptions } from './panels';
@@ -70,7 +71,10 @@ export class Browser implements vscode.Disposable {
     /** Where to go once the webview has told us how big it is. */
     private pending: string | undefined;
 
-    constructor(private readonly panels: AppPanels) {}
+    constructor(
+        private readonly panels: AppPanels,
+        private readonly webApps: WebAppService,
+    ) {}
 
     private get config(): vscode.WorkspaceConfiguration {
         return vscode.workspace.getConfiguration('vscodeos');
@@ -278,8 +282,43 @@ export class Browser implements vscode.Disposable {
         })));
 
         const history = await this.historyFlags(tab);
-        const state: BrowserState = { url, title, loading: false, ...history, tabs };
+        const state: BrowserState = {
+            url,
+            title,
+            loading: false,
+            ...history,
+            tabs,
+            installable: await this.installable(tab, url, title),
+        };
         this.post({ type: 'browserState', state });
+    }
+
+    /**
+     * Whether the page in front of you is installable as an app.
+     *
+     * This is the one place in the shell that can answer that question the way
+     * a browser does, because it *is* a browser: the page is loaded, so the
+     * manifest link is right there in the DOM. Everywhere else has to fetch the
+     * page again to find out.
+     */
+    private async installable(tab: Tab, url: string, title: string): Promise<BrowserState['installable']> {
+        if (!url.startsWith('http') || !this.config.get<boolean>('webApps.enabled', true)) {
+            return undefined;
+        }
+        try {
+            const href = await tab.page.evaluate(
+                () => document.querySelector<HTMLLinkElement>('link[rel~="manifest"]')?.href ?? '',
+            );
+            if (!href) {
+                return undefined;
+            }
+            // Offering to install something that is already installed is a
+            // button that does nothing useful, so it hides once it has been used.
+            return (await this.webApps.findForUrl(url)) ? undefined : { url, name: title || url };
+        } catch {
+            // Mid-navigation, or a page that will not run script for us.
+            return undefined;
+        }
     }
 
     /**
@@ -424,6 +463,17 @@ export class Browser implements vscode.Disposable {
                 const url = this.active?.page.url();
                 if (url && !openExternally(url, { preferred: this.config.get<string>('browser.command') || undefined })) {
                     void vscode.window.showErrorMessage('No browser is installed to hand this page to.');
+                }
+                return;
+            }
+
+            case 'browserInstallApp': {
+                const url = this.active?.page.url();
+                if (url) {
+                    // The Marketplace owns the install flow - reading the
+                    // manifest, asking where the app should open, reporting the
+                    // result - so this is the same three steps either way in.
+                    await vscode.commands.executeCommand('vscodeos.webApps.install', url);
                 }
                 return;
             }

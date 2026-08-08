@@ -468,6 +468,12 @@ input[type='range']::-webkit-slider-thumb {
     color: var(--vscodeos-accent-fg);
 }
 
+/* Shuffle and repeat are modes, not actions, so they stay lit while they last. */
+.transport button.on {
+    color: var(--vscodeos-accent);
+    background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
 .progress-row {
     display: flex;
     align-items: center;
@@ -541,6 +547,80 @@ input[type='range']::-webkit-slider-thumb {
 .app-tile-label {
     font-size: 0.88em;
     line-height: 1.25;
+}
+
+/* ------------------------------------------------------------- all apps */
+
+/* The view lives in the activity bar, which is narrow, so the toolbar stacks
+   the search box over the filter chips instead of putting them side by side. */
+.app-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+}
+
+.app-toolbar .app-search-row {
+    margin-bottom: 0;
+}
+
+.app-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-tile-fg);
+    font-size: 0.86em;
+}
+
+.chip:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.24));
+}
+
+.chip.on {
+    background: var(--vscodeos-accent);
+    color: var(--vscodeos-accent-fg);
+}
+
+.app-body {
+    padding: 0 10px 12px;
+}
+
+/* A real icon, from a manifest or an icon theme. Boxed to the glyph's footprint
+   so a 512px PNG and a 26px drawing make the same size tile. */
+.app-tile-image {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+}
+
+.context-menu {
+    position: fixed;
+    z-index: 30;
+    min-width: 180px;
+    max-width: 260px;
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--vscodeos-card-border);
+    background: var(--vscodeos-card-bg);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.34);
+}
+
+.context-head {
+    padding: 6px 8px 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--vscodeos-card-border);
+}
+
+.context-head .list-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* An icon-button that is a toggle rather than an action. */
@@ -1116,6 +1196,100 @@ audio {
     width: 100%;
 }
 
+/* ---------------------------------------------------------- marketplace */
+
+/* The address box shares the toolbar with the search box; it gets the wider
+   share, because a URL is longer than a search term. */
+.market-address {
+    flex: 2;
+    min-width: 220px;
+}
+
+.market-row {
+    padding: 9px 10px;
+    align-items: center;
+}
+
+.market-letter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 1.05em;
+}
+
+.market-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------- music */
+
+/* The library scrolls; the transport is pinned to the bottom of the tab, so
+   what is playing never scrolls out of reach of the pause button. */
+.music-body {
+    padding: 6px 10px 10px;
+}
+
+.music-list .list-row {
+    padding: 7px 10px;
+}
+
+.music-bar {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--vscodeos-card-border);
+    background: var(--vscodeos-card-bg);
+}
+
+.music-now {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.music-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border-radius: 5px;
+    background: var(--vscodeos-tile-bg);
+    color: var(--vscodeos-muted);
+}
+
+.music-bar .transport {
+    margin: 0;
+}
+
+.music-time {
+    min-width: 38px;
+    text-align: center;
+}
+
+/* Below this the three columns cannot all fit, so they stack: what is playing,
+   then the buttons, then the scrubber. */
+@media (max-width: 720px) {
+    .music-bar {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+}
+
 /* --------------------------------------------------------- media player */
 
 .player-body {
@@ -1390,30 +1564,6 @@ audio {
 
 .settings-pane .list-name .update-badge {
     margin-left: 8px;
-}
-
-/* ------------------------------------------------------------ recycle bin */
-
-/* The bin shares the activity bar container with the Task Manager, so its rows
-   are the narrow kind: name over origin, with no columns. */
-.bin .toolbar {
-    gap: 6px;
-}
-
-.bin-actions {
-    display: flex;
-    gap: 6px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--vscodeos-card-border);
-}
-
-.bin-actions .button {
-    flex: 1;
-    justify-content: center;
-}
-
-.bin-count {
-    color: var(--vscodeos-muted);
 }
 
 /* In the Files app's list view the size column carries the original location

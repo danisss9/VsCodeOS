@@ -1,14 +1,15 @@
-// The nine tray flyouts, drawn as one card.
+// The eight tray cards, drawn as one card.
 //
-// In the bottom panel the host is full width, so the card pins itself to the
-// bottom-right corner and reads as a flyout rising out of the tray item that was
-// clicked. In the side bar - the default - the container is already the right
-// width and the anchoring does nothing, which is exactly what is wanted there.
+// The optional half of the tray - `vscodeos.flyout.location` has to be set to
+// `sidebar` or `panel` for any of this to be on screen; the default is a quick
+// pick. In the bottom panel the host is full width, so the card pins itself to
+// the bottom-right corner and reads as a flyout rising out of the tray item
+// that was clicked. In a side bar container the width is already about right
+// and the anchoring does nothing, which is what is wanted there.
 
 import { append, clear, h, onMessage, post, root, throttle, formatDuration } from './lib/dom';
 import { icon, signalIcon } from './lib/icons';
 import type {
-    AppEntry,
     BluetoothDevice,
     FlyoutKind,
     FlyoutState,
@@ -16,13 +17,11 @@ import type {
     NotificationRecord,
 } from '../../src/webview/protocol';
 
-let kind: FlyoutKind = 'apps';
+let kind: FlyoutKind = 'power';
 let state: FlyoutState | undefined;
 let busy: string | undefined;
 /** Month the calendar is showing; the clock keeps ticking regardless. */
 let calendarMonth = new Date();
-/** What has been typed into the launcher's search box. */
-let appQuery = '';
 
 const host = h('div', { class: 'flyout-host' });
 const card = h('div', { class: 'flyout' });
@@ -35,7 +34,6 @@ onMessage<HostMessage>((message) => {
             if (message.kind !== kind) {
                 kind = message.kind;
                 calendarMonth = new Date();
-                appQuery = '';
                 busy = undefined;
             }
             render();
@@ -71,12 +69,10 @@ setInterval(() => {
 function render(): void {
     card.classList.toggle(
         'wide',
-        kind === 'network' || kind === 'music' || kind === 'apps'
-        || kind === 'bluetooth' || kind === 'notifications',
+        kind === 'network' || kind === 'music' || kind === 'bluetooth' || kind === 'notifications',
     );
     clear(card);
     switch (kind) {
-        case 'apps': return renderApps();
         case 'power': return renderPower();
         case 'calendar': return renderCalendar();
         case 'volume': return renderVolume();
@@ -90,78 +86,6 @@ function render(): void {
 
 function title(text: string): HTMLElement {
     return h('h2', { class: 'flyout-title' }, text);
-}
-
-// -------------------------------------------------------------- app launcher
-
-function matches(app: AppEntry, query: string): boolean {
-    if (!query) {
-        return true;
-    }
-    const haystack = [app.title, app.description, ...(app.keywords ?? [])].join(' ').toLowerCase();
-    // Every word has to appear somewhere, so "voice rec" finds the recorder but
-    // "voice paint" finds nothing.
-    return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
-}
-
-function renderApps(): void {
-    const open = (app: AppEntry): void => post({ type: 'command', command: app.command });
-
-    const search = h('input', {
-        class: 'app-search',
-        type: 'text',
-        placeholder: 'Search apps',
-        value: appQuery,
-        'aria-label': 'Search apps',
-        on: {
-            input: (event: Event) => {
-                appQuery = (event.target as HTMLInputElement).value;
-                renderGrid();
-            },
-            keydown: (event: KeyboardEvent) => {
-                if (event.key === 'Enter') {
-                    const first = (state?.apps ?? []).filter((app) => matches(app, appQuery))[0];
-                    if (first) {
-                        open(first);
-                    }
-                }
-            },
-        },
-    });
-
-    const grid = h('div', { class: 'app-grid' });
-
-    function renderGrid(): void {
-        const list = (state?.apps ?? []).filter((app) => matches(app, appQuery));
-        clear(grid);
-        if (list.length === 0) {
-            grid.append(h('div', { class: 'empty' }, 'No app matches that.'));
-            return;
-        }
-        for (const app of list) {
-            grid.append(h('button', {
-                class: 'app-tile',
-                title: app.description,
-                on: { click: () => open(app) },
-            },
-            h('span', { class: 'app-tile-icon', html: icon(app.icon, 26) }),
-            h('span', { class: 'app-tile-label' }, app.title),
-            ));
-        }
-    }
-
-    card.append(
-        h('div', { class: 'app-search-row' },
-            h('span', { class: 'app-search-icon', html: icon('search', 16) }),
-            search,
-        ),
-        grid,
-    );
-    renderGrid();
-
-    // Typing should start immediately, the way a start menu does. The view is
-    // focused by the host unless it was opened with preserveFocus.
-    setTimeout(() => search.focus(), 0);
 }
 
 // ------------------------------------------------------------------- power
@@ -692,21 +616,25 @@ function renderBluetooth(): void {
 function renderMusic(): void {
     card.append(title('Music'));
 
-    const launchers = h('div', { class: 'tiles', style: { gridTemplateColumns: 'repeat(2, 1fr)' } },
+    // The card used to be two bookmarks - Spotify Web and YouTube Music - which
+    // is not a music player and is useless on a machine with no network. The
+    // player is a real app now; this card is the transport for whatever is
+    // playing, wherever it is playing.
+    card.append(h('div', { class: 'tiles', style: { gridTemplateColumns: '1fr' } },
         h('button', {
             class: 'tile',
-            on: { click: () => post({ type: 'launchMusic', service: 'spotify' }) },
-        }, h('span', { html: icon('music', 20) }), h('span', { class: 'tile-label' }, 'Spotify Web')),
-        h('button', {
-            class: 'tile',
-            on: { click: () => post({ type: 'launchMusic', service: 'ytmusic' }) },
-        }, h('span', { html: icon('play', 20) }), h('span', { class: 'tile-label' }, 'YouTube Music')),
-    );
-    card.append(launchers);
+            on: { click: () => post({ type: 'command', command: 'vscodeos.music.open' }) },
+        },
+        h('span', { html: icon('music', 20) }),
+        h('span', { class: 'tile-label' },
+            'Open Music',
+            h('div', { class: 'tile-sub' }, 'The music on this computer'),
+        )),
+    ));
 
     if (!state?.mprisAvailable) {
         card.append(h('p', { class: 'flyout-note' },
-            'Install playerctl to control playback from here: sudo pacman -S playerctl'));
+            'Install playerctl to control other players from here: sudo pacman -S playerctl'));
         return;
     }
 
@@ -714,8 +642,7 @@ function renderMusic(): void {
     card.append(h('div', { class: 'section-head' }, 'Now playing'));
 
     if (!playing) {
-        card.append(h('div', { class: 'empty' },
-            'Nothing is playing. Open one of the services above and press play.'));
+        card.append(h('div', { class: 'empty' }, 'Nothing is playing.'));
         return;
     }
 

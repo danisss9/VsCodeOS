@@ -44,9 +44,19 @@
     "viewsContainers": {
       "activitybar": [
         {
+          "id": "vscodeos-apps",
+          "title": "All Apps",
+          "icon": "media/icons/apps.svg"
+        },
+        {
           "id": "vscodeos-system",
           "title": "System",
           "icon": "media/icons/system.svg"
+        },
+        {
+          "id": "vscodeos-tray",
+          "title": "Tray",
+          "icon": "media/icons/tray.svg"
         }
       ],
       "panel": [
@@ -58,26 +68,29 @@
       ]
     },
     "views": {
-      "vscodeos-system": [
+      "vscodeos-apps": [
         {
           "type": "webview",
-          "id": "vscodeos.flyout",
-          "name": "System",
-          "when": "config.vscodeos.flyout.location == 'sidebar'"
-        },
+          "id": "vscodeos.allApps",
+          "name": "All Apps",
+          "icon": "media/icons/apps.svg"
+        }
+      ],
+      "vscodeos-system": [
         {
           "type": "webview",
           "id": "vscodeos.taskManager",
           "name": "Task Manager",
           "icon": "media/icons/system.svg",
           "when": "config.vscodeos.taskManager.enabled"
-        },
+        }
+      ],
+      "vscodeos-tray": [
         {
           "type": "webview",
-          "id": "vscodeos.recycleBin",
-          "name": "Recycle Bin",
-          "icon": "media/icons/recyclebin.svg",
-          "when": "config.vscodeos.recycleBin.enabled"
+          "id": "vscodeos.flyout",
+          "name": "Tray",
+          "when": "config.vscodeos.flyout.location == 'sidebar'"
         }
       ],
       "vscodeos-flyout": [
@@ -158,7 +171,12 @@
       },
       {
         "command": "vscodeos.music.show",
-        "title": "Show Music Player",
+        "title": "Show Music Controls",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.music.open",
+        "title": "Music",
         "category": "VS Code OS"
       },
       {
@@ -275,6 +293,21 @@
         "command": "vscodeos.apps.menu",
         "title": "All Apps\u2026",
         "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.marketplace.open",
+        "title": "Marketplace",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.webApps.install",
+        "title": "Install Web App\u2026",
+        "category": "VS Code OS"
+      },
+      {
+        "command": "vscodeos.webApps.launch",
+        "title": "Open Web App",
+        "category": "VS Code OS"
       }
     ],
     "configuration": {
@@ -298,14 +331,16 @@
         "vscodeos.flyout.location": {
           "type": "string",
           "enum": [
+            "popup",
             "sidebar",
             "panel"
           ],
           "enumDescriptions": [
-            "In the side bar, next to the Task Manager. Leaves the bottom panel to the terminal.",
-            "In the bottom panel, directly above the status bar."
+            "As a popup over the editor, which is what a tray menu should be.",
+            "As cards in a Tray container in the activity bar. Richer: real sliders, a month grid and album art.",
+            "As cards in the bottom panel, directly above the status bar. Takes the panel away from the terminal."
           ],
-          "default": "sidebar",
+          "default": "popup",
           "description": "Where the tray menus (power, clock, network, Bluetooth, volume, music) open."
         },
         "vscodeos.taskManager.enabled": {
@@ -325,15 +360,25 @@
           "default": true,
           "description": "Enable the graphical file explorer."
         },
-        "vscodeos.recycleBin.enabled": {
+        "vscodeos.allApps.systemApps": {
           "type": "boolean",
           "default": true,
-          "description": "Show the Recycle Bin view in the activity bar. The Files app lists it as a place either way."
+          "description": "List the machine's other applications in All Apps, from their .desktop files. Turn off to show only the shell's own apps and installed web apps."
+        },
+        "vscodeos.webApps.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Marketplace and installed web apps (PWAs)."
         },
         "vscodeos.music.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable the music player and its status bar transport."
+        },
+        "vscodeos.music.directory": {
+          "type": "string",
+          "default": "~/Music",
+          "description": "Folder the Music app builds its library from."
         },
         "vscodeos.notifications.enabled": {
           "type": "boolean",
@@ -421,6 +466,10 @@
         {
           "command": "vscodeos.power.settings",
           "when": "config.vscodeos.statusBar.enabled"
+        },
+        {
+          "command": "vscodeos.webApps.launch",
+          "when": "false"
         }
       ]
     }
